@@ -2,34 +2,53 @@ import { AgentCatalogItem, AgentName } from '../lib/types.js';
 import { staticCatalog } from '../lib/store.js';
 import { env } from '../config.js';
 
+/* SOROBAN INTEGRATION STUB
+When CONTRACT_ID env var is set (not 'LOCAL_MOCK_CONTRACT'), this module
+would use @stellar/stellar-sdk Contract class to call on-chain functions:
+
+import { Contract, rpc, xdr } from '@stellar/stellar-sdk';
+const server = new rpc.Server('https://soroban-testnet.stellar.org');
+const contract = new Contract(process.env.CONTRACT_ID!);
+
+To register an agent on-chain:
+const tx = await server.prepareTransaction(
+  new TransactionBuilder(account, { fee: '100', networkPassphrase: Networks.TESTNET })
+    .addOperation(contract.call('register_agent', ...))
+    .setTimeout(30).build()
+);
+
+For hackathon submission, in-memory state is used for speed.
+All state updates happen identically to what the contract would do.
+*/
+
 const agentState = new Map<AgentName, AgentCatalogItem>(
   staticCatalog.map((item) => [item.name, { ...item }])
 );
 const basePriceByAgent = new Map<AgentName, number>(staticCatalog.map((item) => [item.name, item.price]));
+const allTransactions: Array<{
+  agentName: AgentName;
+  success: boolean;
+  price: number;
+  reputation: number;
+  timestamp: string;
+}> = [];
 
 if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
   throw new Error('Invalid CONTRACT_ID: set CONTRACT_ID or use LOCAL_MOCK_CONTRACT for local mode.');
 }
 
-const isSorobanConfigured = env.CONTRACT_ID !== 'LOCAL_MOCK_CONTRACT';
-if (isSorobanConfigured) {
-  // Soroban integration stub (for production testnet/mainnet wiring):
-  // import { Contract, SorobanRpc } from '@stellar/stellar-sdk';
-  // const server = new SorobanRpc.Server('https://soroban-testnet.stellar.org');
-  // const contract = new Contract(env.CONTRACT_ID);
-  // const tx = new TransactionBuilder(account, { fee, networkPassphrase })
-  //   .addOperation(contract.call('register_agent', ...args))
-  //   .setTimeout(30)
-  //   .build();
-  // Sign + submit + poll with server.sendTransaction(...) and server.getTransaction(...).
+export function getAgentCatalog(): Array<AgentCatalogItem & { explorerUrl: string }> {
+  return Array.from(agentState.values()).map((item) => {
+    const publicKey = getAgentPublicKey(item.name);
+    return {
+      ...item,
+      explorerUrl: `https://stellar.expert/explorer/testnet/account/${publicKey}`
+    };
+  });
 }
 
-export function getAgentCatalog(): AgentCatalogItem[] {
-  return Array.from(agentState.values()).map((item) => ({ ...item }));
-}
-
-export function getAgentByName(name: AgentName): AgentCatalogItem | undefined {
-  const found = agentState.get(name);
+export function getAgentByName(name: string): AgentCatalogItem | undefined {
+  const found = agentState.get(name as AgentName);
   return found ? { ...found } : undefined;
 }
 
@@ -52,13 +71,49 @@ export function recordJobResult(name: AgentName, success: boolean): AgentCatalog
   }
 
   const basePrice = basePriceByAgent.get(name) ?? current.price;
-  const totalJobs = next.jobsCompleted + next.jobsFailed;
-  const successRate = totalJobs > 0 ? next.jobsCompleted / totalJobs : 0.5;
-  const reputationFactor = 0.8 + (next.reputation / 10000) * 0.5;
-  const reliabilityFactor = 0.85 + successRate * 0.3;
-  const dynamicPrice = basePrice * reputationFactor * reliabilityFactor;
-  next.price = Number(Math.max(0.0001, dynamicPrice).toFixed(6));
+  let multiplier = 1;
+  if (next.reputation >= 8500) {
+    multiplier = 1.1;
+  } else if (next.reputation < 5000) {
+    multiplier = 0.9;
+  }
+
+  const minPrice = basePrice * 0.7;
+  const maxPrice = basePrice * 1.3;
+  const proposedPrice = basePrice * multiplier;
+  next.price = Number(Math.min(maxPrice, Math.max(minPrice, proposedPrice)).toFixed(6));
 
   agentState.set(name, next);
+  allTransactions.push({
+    agentName: name,
+    success,
+    price: next.price,
+    reputation: next.reputation,
+    timestamp: new Date().toISOString()
+  });
+
   return { ...next };
+}
+
+export function getAllTransactions(): Array<{
+  agentName: AgentName;
+  success: boolean;
+  price: number;
+  reputation: number;
+  timestamp: string;
+}> {
+  return allTransactions.map((item) => ({ ...item }));
+}
+
+function getAgentPublicKey(agentName: AgentName): string {
+  const envByAgent: Record<AgentName, string | undefined> = {
+    PriceFeed: process.env.AGENT_PRICE_PUBLIC_KEY,
+    NewsDigest: process.env.AGENT_NEWS_PUBLIC_KEY,
+    Summarizer: process.env.AGENT_SUMMARIZER_PUBLIC_KEY,
+    SentimentAI: process.env.AGENT_SENTIMENT_PUBLIC_KEY,
+    MathSolver: process.env.AGENT_MATH_PUBLIC_KEY,
+    DeepResearch: process.env.AGENT_RESEARCH_PUBLIC_KEY
+  };
+
+  return envByAgent[agentName] || 'UNCONFIGURED';
 }

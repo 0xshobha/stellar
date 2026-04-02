@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { env } from './config.js';
+import { logError, logInfo, logWarn } from './lib/logger.js';
 import {
   addTransaction,
   completeSession,
@@ -46,14 +47,26 @@ const claude = env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
   : null;
 
+function getBackendBaseUrl(): string {
+  return process.env.RUNTIME_BACKEND_BASE_URL || env.BACKEND_BASE_URL;
+}
+
 export function startQuerySession(query: string): string {
   const sessionId = randomUUID();
   createSessionStatus(sessionId, query);
+  logInfo('Query session created', {
+    sessionId,
+    query
+  });
   void runManagerSession(sessionId, query);
   return sessionId;
 }
 
 async function runManagerSession(sessionId: string, query: string): Promise<void> {
+  logInfo('Manager session started', {
+    sessionId,
+    query
+  });
   sseHub.emit(sessionId, 'status', { message: 'Manager started planning', stage: 'planning' });
   try {
     const catalog = getAgentCatalog();
@@ -70,6 +83,11 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
       plan: plan.explanation,
       steps: prioritized
     });
+    logInfo('Execution plan prepared', {
+      sessionId,
+      totalSteps: prioritized.length,
+      steps: prioritized.map((item) => item.agentName)
+    });
 
     const outputs: Array<{ agent: string; result: unknown }> = [];
     let completedSteps = 0;
@@ -78,6 +96,13 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
       const worker = catalog.find((item) => item.name === step.agentName);
       if (!worker) continue;
       const depth = Math.min(step.depth ?? 1, MAX_RECURSION_DEPTH);
+      logInfo('Executing step', {
+        sessionId,
+        agent: worker.name,
+        depth,
+        completedSteps,
+        totalSteps: prioritized.length
+      });
 
       sseHub.emit(sessionId, 'step-start', {
         step: completedSteps + 1,
@@ -93,7 +118,7 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
         depth
       });
 
-      const endpointUrl = `${env.BACKEND_BASE_URL}/agents/${worker.endpoint}`;
+      const endpointUrl = `${getBackendBaseUrl()}/agents/${worker.endpoint}`;
       try {
         const response = await x402FetchJson<WorkerResponse>(sessionId, endpointUrl, {
           method: 'POST',
@@ -174,6 +199,14 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
           agent: worker.name,
           metrics: getSessionMetrics(sessionId)
         });
+        logInfo('Step completed', {
+          sessionId,
+          agent: worker.name,
+          txHash: response.data.txHash,
+          paid: response.data.pricePaid,
+          completedSteps,
+          totalSteps: prioritized.length
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         registerSessionError(sessionId, `${worker.name}: ${message}`);
@@ -188,6 +221,11 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
           totalSteps: prioritized.length,
           agent: worker.name
         });
+        logWarn('Step failed', {
+          sessionId,
+          agent: worker.name,
+          message
+        });
       }
     }
 
@@ -199,10 +237,20 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
       metrics: finalMetrics,
       partial: Boolean(getSessionMetrics(sessionId).transactionCount < prioritized.length)
     });
+    logInfo('Manager session completed', {
+      sessionId,
+      partial: Boolean(getSessionMetrics(sessionId).transactionCount < prioritized.length),
+      transactionCount: finalMetrics.transactionCount,
+      totalSpend: finalMetrics.totalSpend
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     updateSessionStatus(sessionId, { complete: true, summary: `Execution failed: ${message}` });
     sseHub.emit(sessionId, 'error', { message });
+    logError('Manager session crashed', {
+      sessionId,
+      message
+    });
   }
 }
 

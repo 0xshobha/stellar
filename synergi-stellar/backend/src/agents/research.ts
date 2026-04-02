@@ -7,6 +7,10 @@ import { x402FetchJson } from '../x402/client.js';
 const router = Router();
 const MAX_DEPTH = 2;
 
+function getBackendBaseUrl(): string {
+  return process.env.RUNTIME_BACKEND_BASE_URL || env.BACKEND_BASE_URL;
+}
+
 router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
   const input = String(req.body?.input ?? 'research topic');
   const depth = Number(req.body?.depth ?? 0);
@@ -39,7 +43,7 @@ router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
         txHash?: string;
       }>(
         sessionId,
-        `${env.BACKEND_BASE_URL}/agents/${entry.endpoint}`,
+        `${getBackendBaseUrl()}/agents/${entry.endpoint}`,
         {
           method: 'POST',
           headers: {

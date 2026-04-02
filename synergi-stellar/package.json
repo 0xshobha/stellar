@@ -14,9 +14,14 @@
     "dev:frontend": "npm run dev -w frontend",
     "dev:mcp": "npm run dev -w mcp-server",
     "build": "npm run build -w backend && npm run build -w frontend && npm run build -w mcp-server",
-    "lint": "npm run lint -w backend && npm run lint -w frontend && npm run lint -w mcp-server"
+    "lint": "npm run lint -w backend && npm run lint -w frontend && npm run lint -w mcp-server",
+    "build:server": "npm run build -w backend && npm run build -w frontend",
+    "start:server": "concurrently \"npm run start -w backend\" \"npm run start -w frontend\""
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "axios": "^1.14.0"
   }
 }

@@ -15,6 +15,14 @@ type LatestDoc = {
   updatedAt: string;
 };
 
+type ChainConfig = {
+  network: string;
+  contractId: string;
+  x402Mode: string;
+  x402Enforced: boolean;
+  contractConfigured: boolean;
+};
+
 function formatUpdatedDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Unknown';
@@ -26,6 +34,51 @@ function formatUpdatedDate(value: string): string {
 }
 
 export const dynamic = 'force-dynamic';
+const REQUIRED_FREIGHTER_ADDRESS = process.env.NEXT_PUBLIC_REQUIRED_FREIGHTER_ADDRESS?.trim() ?? '';
+
+type FreighterApi = {
+  isConnected?: () => Promise<boolean>;
+  requestAccess?: () => Promise<unknown>;
+  getAddress?: () => Promise<{ address?: string; publicKey?: string } | string>;
+  getPublicKey?: () => Promise<string>;
+  getNetwork?: () => Promise<string>;
+  getNetworkDetails?: () => Promise<{ network?: string; networkPassphrase?: string }>;
+};
+
+function getFreighterApi(): FreighterApi | null {
+  if (typeof window === 'undefined') return null;
+  const candidate = (window as Window & { freighterApi?: FreighterApi }).freighterApi;
+  return candidate ?? null;
+}
+
+async function readWalletAddress(api: FreighterApi): Promise<string> {
+  if (api.getAddress) {
+    const value = await api.getAddress();
+    if (typeof value === 'string') return value;
+    if (value.address) return value.address;
+    if (value.publicKey) return value.publicKey;
+  }
+  if (api.getPublicKey) {
+    return api.getPublicKey();
+  }
+  throw new Error('Freighter wallet address API is unavailable');
+}
+
+async function readWalletNetwork(api: FreighterApi): Promise<string> {
+  if (api.getNetworkDetails) {
+    const details = await api.getNetworkDetails();
+    return details.network ?? details.networkPassphrase ?? 'unknown';
+  }
+  if (api.getNetwork) {
+    return api.getNetwork();
+  }
+  return 'unknown';
+}
+
+function shortAddress(address: string): string {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 6)}...${address.slice(-6)}`;
+}
 
 export default function HomePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -33,6 +86,65 @@ export default function HomePage() {
   const [catalog, setCatalog] = useState<AgentCatalogItem[]>([]);
   const [latestDocs, setLatestDocs] = useState<LatestDoc[]>([]);
   const [statusSnapshot, setStatusSnapshot] = useState<SessionStatus | null>(null);
+  const [chainConfig, setChainConfig] = useState<ChainConfig | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletNetwork, setWalletNetwork] = useState<string>('');
+  const [walletError, setWalletError] = useState<string>('');
+  const [walletBusy, setWalletBusy] = useState<boolean>(false);
+
+  useEffect(() => {
+    const api = getFreighterApi();
+    if (!api?.isConnected) return;
+
+    void api
+      .isConnected()
+      .then(async (connected) => {
+        if (!connected) return;
+        const [address, network] = await Promise.all([readWalletAddress(api), readWalletNetwork(api)]);
+        setWalletAddress(address);
+        setWalletNetwork(network);
+      })
+      .catch(() => {
+        setWalletAddress(null);
+      });
+  }, []);
+
+  const connectFreighter = async () => {
+    setWalletError('');
+    setWalletBusy(true);
+
+    try {
+      const api = getFreighterApi();
+      if (!api) {
+        throw new Error('Freighter extension not found. Install Freighter and refresh the page.');
+      }
+
+      if (api.requestAccess) {
+        await api.requestAccess();
+      }
+
+      const [address, network] = await Promise.all([readWalletAddress(api), readWalletNetwork(api)]);
+      if (REQUIRED_FREIGHTER_ADDRESS && address !== REQUIRED_FREIGHTER_ADDRESS) {
+        throw new Error(
+          `Wrong wallet selected. Please switch Freighter account to ${REQUIRED_FREIGHTER_ADDRESS}.`
+        );
+      }
+      setWalletAddress(address);
+      setWalletNetwork(network);
+    } catch (error) {
+      setWalletAddress(null);
+      setWalletNetwork('');
+      setWalletError(error instanceof Error ? error.message : 'Unable to connect Freighter wallet');
+    } finally {
+      setWalletBusy(false);
+    }
+  };
+
+  const disconnectWallet = () => {
+    setWalletAddress(null);
+    setWalletNetwork('');
+    setWalletError('');
+  };
 
   useEffect(() => {
     void fetch('/api/agents/catalog')
@@ -61,12 +173,24 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    void fetch('/api/chain/config')
+      .then((res) => res.json())
+      .then((payload: ApiEnvelope<ChainConfig>) => {
+        if (payload.ok && payload.data) {
+          setChainConfig(payload.data);
+          return;
+        }
+        setChainConfig(null);
+      })
+      .catch(() => setChainConfig(null));
+  }, []);
+
+  useEffect(() => {
     if (!sessionId) return;
     setEvents([]);
     setStatusSnapshot(null);
 
-    const backend = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
-    const source = new EventSource(`${backend}/api/events/${sessionId}`);
+    const source = new EventSource(`/api/events/${sessionId}`);
 
     source.onmessage = (event) => {
       try {
@@ -126,9 +250,50 @@ export default function HomePage() {
             <h1 className="text-2xl font-bold text-slate-900">SynergiStellar Dashboard</h1>
             <p className="text-sm text-slate-600">x402 autonomous agent economy on Stellar</p>
           </div>
-          <span className="glass-chip w-fit">Live Demo Mode</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="glass-chip w-fit">Live Demo Mode</span>
+            {walletAddress ? (
+              <>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
+                  Wallet {shortAddress(walletAddress)}
+                </span>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                  {walletNetwork || 'network unknown'}
+                </span>
+                <button
+                  type="button"
+                  onClick={disconnectWallet}
+                  className="soft-ring rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-slate-400"
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void connectFreighter()}
+                disabled={walletBusy}
+                className="soft-ring rounded-lg border border-emerald-300 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {walletBusy ? 'Connecting...' : 'Connect Freighter Wallet'}
+              </button>
+            )}
+          </div>
         </div>
         <p className="mt-2 text-sm text-slate-700">Payment volume: {totalPaid} USDC</p>
+        {chainConfig ? (
+          <p className="mt-1 text-xs text-slate-600">
+            Network: {chainConfig.network} · Contract:{' '}
+            {chainConfig.contractConfigured ? shortAddress(chainConfig.contractId) : 'not configured'} · x402:{' '}
+            {chainConfig.x402Mode}
+          </p>
+        ) : null}
+        {walletError ? <p className="mt-1 text-xs text-rose-600">{walletError}</p> : null}
+        {!walletAddress && REQUIRED_FREIGHTER_ADDRESS ? (
+          <p className="mt-1 text-[11px] text-slate-500">
+            Required Freighter wallet: {shortAddress(REQUIRED_FREIGHTER_ADDRESS)}
+          </p>
+        ) : null}
         <p className="text-xs text-slate-500">
           {statusSnapshot
             ? `Steps ${statusSnapshot.completedSteps}/${statusSnapshot.totalSteps} · Transactions ${statusSnapshot.metrics.transactionCount}`

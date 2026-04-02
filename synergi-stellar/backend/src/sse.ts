@@ -1,4 +1,5 @@
 import type { Response } from 'express';
+import { logDebug, logInfo } from './lib/logger.js';
 
 interface SSEClient {
   id: string;
@@ -15,6 +16,10 @@ class SSEHub {
     response.flushHeaders();
     response.write(`data: ${JSON.stringify({ type: 'connected', sessionId: id })}\n\n`);
     this.clients.set(id, { id, response });
+    logInfo('SSE client connected', {
+      sessionId: id,
+      activeClients: this.clients.size
+    });
   }
 
   emit(id: string, type: string, data: Record<string, unknown>): void {
@@ -22,6 +27,10 @@ class SSEHub {
     if (!client) return;
     const payload = JSON.stringify({ type, ...data, at: new Date().toISOString() });
     client.response.write(`data: ${payload}\n\n`);
+    logDebug('SSE event emitted', {
+      sessionId: id,
+      type
+    });
   }
 
   removeClient(id: string): void {
@@ -29,6 +38,10 @@ class SSEHub {
     if (!client) return;
     client.response.end();
     this.clients.delete(id);
+    logInfo('SSE client disconnected', {
+      sessionId: id,
+      activeClients: this.clients.size
+    });
   }
 }
 

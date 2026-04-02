@@ -1,0 +1,100 @@
+import './globals.css';
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { ReactNode } from 'react';
+import Logo from '../components/Logo';
+
+export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  title: {
+    default: 'SynergiStellar',
+    template: '%s | SynergiStellar'
+  },
+  description: 'Autonomous agent economy on Stellar with x402 micropayments, recursive hiring, live topology, and protocol traces.',
+  keywords: [
+    'Stellar',
+    'x402',
+    'agent economy',
+    'autonomous agents',
+    'Soroban',
+    'USDC',
+    'hackathon'
+  ],
+  openGraph: {
+    type: 'website',
+    url: '/',
+    siteName: 'SynergiStellar',
+    title: 'SynergiStellar — x402 Autonomous Agent Economy',
+    description: 'Manager and worker agents execute paid tasks with x402 flow on Stellar.',
+    images: [
+      {
+        url: '/opengraph-image',
+        width: 1200,
+        height: 630,
+        alt: 'SynergiStellar Open Graph Image'
+      }
+    ]
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'SynergiStellar — x402 Agent Economy',
+    description: 'Recursive agent-to-agent payments and live protocol traces on Stellar.',
+    images: ['/opengraph-image']
+  },
+  alternates: {
+    canonical: '/'
+  },
+  icons: {
+    icon: '/logo.svg'
+  }
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 sm:px-6">
+          <header className="sticky top-0 z-20 mt-3 rounded-2xl border border-sky-100 bg-white/85 px-4 py-3 shadow-sm backdrop-blur">
+            <div className="flex items-center justify-between gap-4">
+              <Link className="group flex items-center gap-3" href="/">
+                <Logo className="float-soft h-9 w-9 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-105" />
+                <div className="leading-tight">
+                  <span className="block text-sm font-semibold tracking-wide text-slate-800">SynergiStellar</span>
+                  <span className="block text-xs text-slate-500">x402 agent economy demo</span>
+                </div>
+              </Link>
+
+              <div className="hidden items-center gap-2 md:flex">
+                <span className="glass-chip">Stellar Testnet</span>
+                <span className="glass-chip">Soroban Ready</span>
+              </div>
+
+              <nav className="flex items-center gap-2 text-sm">
+                <Link className="soft-ring rounded-lg px-3 py-1.5 text-slate-600 transition hover:bg-sky-50 hover:text-sky-700" href="/docs">
+                  Docs
+                </Link>
+                <Link className="soft-ring rounded-lg px-3 py-1.5 text-slate-600 transition hover:bg-sky-50 hover:text-sky-700" href="/privacy">
+                  Privacy
+                </Link>
+              </nav>
+            </div>
+          </header>
+          <div className="flex-1 pt-5">{children}</div>
+          <footer className="mt-10 border-t border-slate-200 py-8 text-xs text-slate-600">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p>SynergiStellar demo UI for autonomous x402 agent transactions on Stellar.</p>
+              <div className="flex items-center gap-4">
+                <Link className="hover:text-sky-700" href="/docs">
+                  Documentation
+                </Link>
+                <Link className="hover:text-sky-700" href="/privacy">
+                  Privacy Policy
+                </Link>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </body>
+    </html>
+  );
+}

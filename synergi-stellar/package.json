@@ -1,0 +1,22 @@
+{
+  "name": "synergi-stellar",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "mcp-server"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspaces",
+    "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:mcp": "npm run dev -w mcp-server",
+    "build": "npm run build -w backend && npm run build -w frontend && npm run build -w mcp-server",
+    "lint": "npm run lint -w backend && npm run lint -w frontend && npm run lint -w mcp-server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

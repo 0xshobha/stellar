@@ -1,0 +1,231 @@
+import { randomUUID } from 'node:crypto';
+import { AgentCatalogItem, AgentUsageMetric, PaymentRecord, ProtocolTraceItem, SessionMetrics, SessionStatus } from './types.js';
+
+const transactions: PaymentRecord[] = [];
+const sessionStatuses = new Map<string, SessionStatus>();
+const protocolTraces = new Map<string, ProtocolTraceItem[]>();
+const sessionTransactions = new Map<string, PaymentRecord[]>();
+const sessionMetrics = new Map<string, SessionMetrics>();
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function buildExplorerUrl(txHash: string): string {
+  return `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+}
+
+export function addTransaction(item: Omit<PaymentRecord, 'id' | 'timestamp' | 'explorerUrl'>): PaymentRecord {
+  const record: PaymentRecord = {
+    id: randomUUID(),
+    timestamp: nowIso(),
+    explorerUrl: buildExplorerUrl(item.txHash),
+    ...item
+  };
+  transactions.unshift(record);
+
+  if (record.sessionId) {
+    const bySession = sessionTransactions.get(record.sessionId) ?? [];
+    bySession.unshift(record);
+    sessionTransactions.set(record.sessionId, bySession);
+
+    const existingMetrics = sessionMetrics.get(record.sessionId) ?? {
+      sessionId: record.sessionId,
+      totalSpend: 0,
+      transactionCount: 0,
+      agentUsage: {}
+    };
+
+    const existingUsage = existingMetrics.agentUsage[record.to] ?? {
+      agentName: record.to,
+      count: 0,
+      totalSpent: 0,
+      lastUsedAt: record.timestamp
+    };
+
+    const updatedUsage: AgentUsageMetric = {
+      ...existingUsage,
+      count: existingUsage.count + 1,
+      totalSpent: Number((existingUsage.totalSpent + record.amount).toFixed(6)),
+      lastUsedAt: record.timestamp
+    };
+
+    sessionMetrics.set(record.sessionId, {
+      ...existingMetrics,
+      totalSpend: Number((existingMetrics.totalSpend + record.amount).toFixed(6)),
+      transactionCount: existingMetrics.transactionCount + 1,
+      agentUsage: {
+        ...existingMetrics.agentUsage,
+        [record.to]: updatedUsage
+      }
+    });
+  }
+
+  return record;
+}
+
+export function listTransactions(limit = 10, sessionId?: string): PaymentRecord[] {
+  const source = sessionId ? (sessionTransactions.get(sessionId) ?? []) : transactions;
+  return source.slice(0, Math.max(1, limit));
+}
+
+export function createSessionStatus(sessionId: string, query: string): SessionStatus {
+  const now = nowIso();
+  const session: SessionStatus = {
+    sessionId,
+    query,
+    complete: false,
+    summary: '',
+    agentsHired: [],
+    totalCost: 0,
+    txHashes: [],
+    startedAt: now,
+    updatedAt: now,
+    errors: [],
+    completedSteps: 0,
+    totalSteps: 0,
+    partial: false
+  };
+  sessionStatuses.set(sessionId, session);
+  protocolTraces.set(sessionId, []);
+  sessionTransactions.set(sessionId, []);
+  sessionMetrics.set(sessionId, {
+    sessionId,
+    totalSpend: 0,
+    transactionCount: 0,
+    agentUsage: {}
+  });
+  return session;
+}
+
+export function updateSessionStatus(sessionId: string, patch: Partial<SessionStatus>): SessionStatus | undefined {
+  const current = sessionStatuses.get(sessionId);
+  if (!current) return undefined;
+  const next: SessionStatus = {
+    ...current,
+    ...patch,
+    updatedAt: nowIso()
+  };
+  sessionStatuses.set(sessionId, next);
+  return next;
+}
+
+export function getSessionStatus(sessionId: string): SessionStatus | undefined {
+  return sessionStatuses.get(sessionId);
+}
+
+export function appendProtocolTrace(sessionId: string, trace: ProtocolTraceItem): void {
+  const list = protocolTraces.get(sessionId) ?? [];
+  list.push(trace);
+  protocolTraces.set(sessionId, list);
+}
+
+export function getProtocolTrace(sessionId: string): ProtocolTraceItem[] {
+  return protocolTraces.get(sessionId) ?? [];
+}
+
+export function getSessionMetrics(sessionId: string): SessionMetrics {
+  return (
+    sessionMetrics.get(sessionId) ?? {
+      sessionId,
+      totalSpend: 0,
+      transactionCount: 0,
+      agentUsage: {}
+    }
+  );
+}
+
+export function getSessionTransactions(sessionId: string, limit = 50): PaymentRecord[] {
+  return (sessionTransactions.get(sessionId) ?? []).slice(0, Math.max(1, limit));
+}
+
+export function registerPaymentToSession(sessionId: string, txHash: string, amount: number, agentName: string): void {
+  const current = sessionStatuses.get(sessionId);
+  if (!current) return;
+  const hired = current.agentsHired.includes(agentName) ? current.agentsHired : [...current.agentsHired, agentName];
+  updateSessionStatus(sessionId, {
+    agentsHired: hired,
+    totalCost: Number((current.totalCost + amount).toFixed(6)),
+    txHashes: [...current.txHashes, txHash]
+  });
+}
+
+export function registerSessionError(sessionId: string, message: string): void {
+  const current = sessionStatuses.get(sessionId);
+  if (!current) return;
+  updateSessionStatus(sessionId, {
+    errors: [...current.errors, message]
+  });
+}
+
+export function completeSession(sessionId: string, summary: string): void {
+  const status = sessionStatuses.get(sessionId);
+  updateSessionStatus(sessionId, {
+    complete: true,
+    summary,
+    partial: status ? status.errors.length > 0 : false
+  });
+}
+
+export const staticCatalog: AgentCatalogItem[] = [
+  {
+    name: 'PriceFeed',
+    endpoint: 'price',
+    price: 0.001,
+    reputation: 8200,
+    capabilities: ['price-check', 'asset-quote'],
+    recursive: false,
+    jobsCompleted: 42,
+    jobsFailed: 2
+  },
+  {
+    name: 'NewsDigest',
+    endpoint: 'news',
+    price: 0.002,
+    reputation: 7900,
+    capabilities: ['headline-summary', 'topic-digest'],
+    recursive: false,
+    jobsCompleted: 31,
+    jobsFailed: 4
+  },
+  {
+    name: 'Summarizer',
+    endpoint: 'summarize',
+    price: 0.001,
+    reputation: 8600,
+    capabilities: ['text-summary', 'key-points'],
+    recursive: false,
+    jobsCompleted: 55,
+    jobsFailed: 1
+  },
+  {
+    name: 'SentimentAI',
+    endpoint: 'sentiment',
+    price: 0.001,
+    reputation: 8100,
+    capabilities: ['sentiment', 'risk-tone'],
+    recursive: false,
+    jobsCompleted: 48,
+    jobsFailed: 3
+  },
+  {
+    name: 'MathSolver',
+    endpoint: 'math',
+    price: 0.002,
+    reputation: 9000,
+    capabilities: ['arithmetic', 'equation-solving'],
+    recursive: false,
+    jobsCompleted: 60,
+    jobsFailed: 1
+  },
+  {
+    name: 'DeepResearch',
+    endpoint: 'research',
+    price: 0.01,
+    reputation: 7600,
+    capabilities: ['recursive-research', 'multi-source-analysis'],
+    recursive: true,
+    jobsCompleted: 20,
+    jobsFailed: 6
+  }
+];

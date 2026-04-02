@@ -1,0 +1,5705 @@
+Directory structure:
+└── stellar/
+    ├── hack/
+    │   ├── mcpserver.md
+    │   ├── prd.md
+    │   ├── quickstart.md
+    │   ├── skill.md
+    │   └── todo.md
+    └── synergi-stellar/
+        ├── README.md
+        ├── package.json
+        ├── backend/
+        │   ├── package.json
+        │   ├── tsconfig.json
+        │   ├── .env.example
+        │   └── src/
+        │       ├── config.ts
+        │       ├── index.ts
+        │       ├── manager.ts
+        │       ├── sse.ts
+        │       ├── agents/
+        │       │   ├── index.ts
+        │       │   ├── math.ts
+        │       │   ├── news.ts
+        │       │   ├── price.ts
+        │       │   ├── research.ts
+        │       │   ├── sentiment.ts
+        │       │   └── summarize.ts
+        │       ├── lib/
+        │       │   ├── store.ts
+        │       │   └── types.ts
+        │       ├── stellar/
+        │       │   ├── contract.ts
+        │       │   └── wallet.ts
+        │       └── x402/
+        │           ├── client.ts
+        │           └── middleware.ts
+        ├── contracts/
+        │   └── agent-registry/
+        │       ├── Cargo.toml
+        │       └── src/
+        │           └── lib.rs
+        ├── docs/
+        │   ├── architecture.md
+        │   ├── frontend-style.md
+        │   └── overview.md
+        ├── frontend/
+        │   ├── next-env.d.ts
+        │   ├── next.config.mjs
+        │   ├── package.json
+        │   ├── postcss.config.js
+        │   ├── tailwind.config.ts
+        │   ├── tsconfig.json
+        │   ├── .env.local.example
+        │   └── src/
+        │       ├── app/
+        │       │   ├── globals.css
+        │       │   ├── head.tsx
+        │       │   ├── layout.tsx
+        │       │   ├── manifest.ts
+        │       │   ├── opengraph-image.tsx
+        │       │   ├── page.tsx
+        │       │   ├── robots.ts
+        │       │   ├── sitemap.ts
+        │       │   ├── api/
+        │       │   │   ├── [...path]/
+        │       │   │   │   └── route.ts
+        │       │   │   └── docs/
+        │       │   │       └── latest/
+        │       │   │           └── route.ts
+        │       │   ├── docs/
+        │       │   │   ├── page.tsx
+        │       │   │   └── [slug]/
+        │       │   │       └── page.tsx
+        │       │   └── privacy/
+        │       │       └── page.tsx
+        │       ├── components/
+        │       │   ├── AgentCatalog.tsx
+        │       │   ├── AgentChat.tsx
+        │       │   ├── Logo.tsx
+        │       │   ├── ProtocolTrace.tsx
+        │       │   ├── TopologyGraph.tsx
+        │       │   └── TransactionLog.tsx
+        │       └── lib/
+        │           ├── docs.ts
+        │           └── types.ts
+        ├── mcp-server/
+        │   ├── package.json
+        │   ├── tsconfig.json
+        │   └── src/
+        │       └── index.ts
+        └── scripts/
+            └── setup-wallets.js
+
+================================================
+FILE: hack/mcpserver.md
+================================================
+#!/usr/bin/env node
+// mcp-server/src/index.ts
+// SynergiStellar MCP Server — exposes agent marketplace tools to Claude Code
+//
+// Install: Add to ~/.claude/mcp.json
+// {
+//   "mcpServers": {
+//     "synergi-stellar": {
+//       "command": "node",
+//       "args": ["/path/to/mcp-server/dist/index.js"],
+//       "env": { "BACKEND_URL": "http://localhost:4000" }
+//     }
+//   }
+// }
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  Tool,
+} from '@modelcontextprotocol/sdk/types.js';
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000';
+
+// ─── Tool Definitions ──────────────────────────────────────────────────────
+
+const tools: Tool[] = [
+  {
+    name: 'list_agents',
+    description: 'List all available worker agents in the SynergiStellar marketplace with their prices, reputations, and capabilities.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'query_manager_agent',
+    description: 'Send a natural language query to the SynergiStellar Manager Agent. It will autonomously plan, hire worker agents using x402 micropayments on Stellar, and return a synthesized answer.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The task or question for the manager agent (e.g. "research quantum computing and summarize findings")',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_agent_reputation',
+    description: 'Get the on-chain Soroban reputation score for a specific agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: {
+          type: 'string',
+          description: 'Name of the agent (e.g. "PriceFeed", "DeepResearch", "Summarizer")',
+        },
+      },
+      required: ['agent_name'],
+    },
+  },
+  {
+    name: 'call_agent_direct',
+    description: 'Directly call a specific worker agent with x402 payment. The MCP server handles the Stellar payment automatically.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: {
+          type: 'string',
+          description: 'Name of the agent to call',
+          enum: ['PriceFeed', 'NewsDigest', 'Summarizer', 'SentimentAI', 'MathSolver', 'DeepResearch'],
+        },
+        input: {
+          type: 'string',
+          description: 'Input data for the agent',
+        },
+      },
+      required: ['agent_name', 'input'],
+    },
+  },
+  {
+    name: 'get_transaction_history',
+    description: 'Get the history of x402 payments made on Stellar testnet, with explorer links.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Number of transactions to return (default 10)',
+          default: 10,
+        },
+      },
+    },
+  },
+  {
+    name: 'get_wallet_balance',
+    description: 'Get the current USDC balance of the manager agent wallet on Stellar testnet.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'create_agent_wallet',
+    description: 'Create a new Stellar wallet for an agent using the sponsored account pattern (no XLM needed to start).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: {
+          type: 'string',
+          description: 'Display name for this agent wallet',
+        },
+      },
+      required: ['agent_name'],
+    },
+  },
+];
+
+// ─── Tool Handlers ─────────────────────────────────────────────────────────
+
+async function callBackend(path: string, body?: any): Promise<any> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: body ? 'POST' : 'GET',
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Backend error ${res.status}: ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
+async function handleTool(name: string, args: any): Promise<string> {
+  switch (name) {
+    case 'list_agents': {
+      const agents = await callBackend('/agents/catalog');
+      return JSON.stringify(agents, null, 2);
+    }
+
+    case 'query_manager_agent': {
+      // Non-streaming version — polls for result
+      const { sessionId } = await callBackend('/api/query', { query: args.query });
+
+      // Poll for completion (simplified — production would use SSE)
+      let attempts = 0;
+      while (attempts < 30) {
+        await new Promise(r => setTimeout(r, 2000));
+        const status = await callBackend(`/api/status/${sessionId}`);
+        if (status.complete) {
+          return `✅ Task Complete\n\n${status.summary}\n\n📊 Agents hired: ${status.agentsHired.join(', ')}\n💰 Total cost: ${status.totalCost} USDC\n🔗 Transactions: ${status.txHashes.map((h: string) => `https://stellar.expert/explorer/testnet/tx/${h}`).join('\n')}`;
+        }
+        attempts++;
+      }
+      return 'Timeout waiting for agent response. Check dashboard at http://localhost:3000';
+    }
+
+    case 'get_agent_reputation': {
+      const rep = await callBackend(`/agents/reputation/${args.agent_name}`);
+      return `Agent: ${args.agent_name}\nReputation: ${rep.reputation}/10000 (${(rep.reputation / 100).toFixed(1)}%)\nJobs completed: ${rep.jobsCompleted}\nJobs failed: ${rep.jobsFailed}\nPrice: ${rep.priceUsdc} USDC`;
+    }
+
+    case 'call_agent_direct': {
+      const endpointMap: Record<string, string> = {
+        PriceFeed: 'price',
+        NewsDigest: 'news',
+        Summarizer: 'summarize',
+        SentimentAI: 'sentiment',
+        MathSolver: 'math',
+        DeepResearch: 'research',
+      };
+      const endpoint = endpointMap[args.agent_name];
+      if (!endpoint) throw new Error(`Unknown agent: ${args.agent_name}`);
+
+      const result = await callBackend(`/agents/${endpoint}`, { input: args.input });
+      return `✅ Agent: ${args.agent_name}\n💰 Payment: ${result.pricePaid} USDC\n🔗 Tx: https://stellar.expert/explorer/testnet/tx/${result.txHash}\n\nResult:\n${JSON.stringify(result.data, null, 2)}`;
+    }
+
+    case 'get_transaction_history': {
+      const history = await callBackend(`/api/transactions?limit=${args.limit || 10}`);
+      return history.map((tx: any) =>
+        `[${tx.timestamp}] ${tx.from} → ${tx.to} | ${tx.amount} USDC | ${tx.txHash.slice(0, 8)}... | https://stellar.expert/explorer/testnet/tx/${tx.txHash}`
+      ).join('\n');
+    }
+
+    case 'get_wallet_balance': {
+      const balance = await callBackend('/api/wallet/balance');
+      return `Manager Wallet Balance:\nPublic Key: ${balance.publicKey}\nXLM: ${balance.xlm}\nUSDC: ${balance.usdc}\nNetwork: Stellar Testnet\n🔗 https://stellar.expert/explorer/testnet/account/${balance.publicKey}`;
+    }
+
+    case 'create_agent_wallet': {
+      const wallet = await callBackend('/api/wallet/create', { name: args.agent_name });
+      return `✅ New Stellar wallet created for "${args.agent_name}"\nPublic Key: ${wallet.publicKey}\nFunded with: ${wallet.xlmFunded} XLM (via sponsorship)\n🔗 https://stellar.expert/explorer/testnet/account/${wallet.publicKey}\n\n⚠️  Secret key returned once — save it:\n${wallet.secretKey}`;
+    }
+
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+
+// ─── MCP Server Setup ──────────────────────────────────────────────────────
+
+const server = new Server(
+  {
+    name: 'synergi-stellar',
+    version: '1.0.0',
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
+  }
+);
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools,
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  try {
+    const result = await handleTool(name, args || {});
+    return {
+      content: [{ type: 'text', text: result }],
+    };
+  } catch (err) {
+    return {
+      content: [{ type: 'text', text: `Error: ${String(err)}` }],
+      isError: true,
+    };
+  }
+});
+
+// ─── Start ─────────────────────────────────────────────────────────────────
+
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error('SynergiStellar MCP Server running on stdio');
+}
+
+main().catch(console.error);
+
+/*
+─── package.json for mcp-server ──────────────────────────────────
+
+{
+  "name": "synergi-stellar-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
+
+─── Add to ~/.claude/mcp.json ────────────────────────────────────
+
+{
+  "mcpServers": {
+    "synergi-stellar": {
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-server/dist/index.js"],
+      "env": {
+        "BACKEND_URL": "http://localhost:4000"
+      }
+    }
+  }
+}
+
+─── Then in Claude Code you can say: ────────────────────────────
+
+"Use synergi-stellar to list available agents"
+"Use synergi-stellar to query the manager agent: research AI trends"
+"Use synergi-stellar to check the wallet balance"
+
+*/
+
+
+================================================
+FILE: hack/prd.md
+================================================
+# 🚀 SYNERGI STELLAR — Product Requirements Document
+### x402 Autonomous Agent Economy on Stellar
+*Hackathon: Stellar Hacks: Agents — $10,000 Prize Pool | Deadline: April 13, 2026*
+
+---
+
+## 1. Executive Summary
+
+**SynergiStellar** is a decentralized Agent-to-Agent (A2A) economy where AI agents autonomously discover, hire, negotiate, and pay each other using **x402 micropayments on Stellar** with USDC stablecoin settlement. Unlike Synergi (Stacks/Bitcoin), this is purpose-built for Stellar's ecosystem: sub-cent fees, 5-second finality, native USDC, and Soroban smart contracts.
+
+**Why this wins the hackathon:**
+- Hits every judging axis: Stellar integration, x402, Claude AI, agentic payments
+- Real on-chain transactions on Stellar testnet (required)
+- Recursive A2A = visually impressive demo
+- Live dashboard + topology graph = undeniable "wow" factor
+- Distinct from every other submission (no one else is doing full recursive A2A on Stellar)
+
+---
+
+## 2. Core Differentiators vs Synergi (Stacks version)
+
+| Feature | Synergi (Stacks) | **SynergiStellar** |
+|---|---|---|
+| Chain | Stacks/Bitcoin L2 | **Stellar** (native) |
+| Payment Token | STX / sBTC | **USDC on Stellar** |
+| Settlement Speed | ~10 min | **~5 seconds** |
+| Tx Cost | ~0.001 STX | **~$0.00001** |
+| Smart Contracts | Clarity | **Soroban (Rust)** |
+| Agent Wallets | Manual setup | **Stellar Sponsored Account** (instant) |
+| Reputation | On-chain Clarity | **On-chain Soroban** |
+| AI LLM | Groq/Gemini | **Claude (Anthropic) + Groq fallback** |
+| MCP Support | None | **Full MCP server included** |
+| x402 Protocol | x402-stacks | **x402-stellar (official)** |
+
+---
+
+## 3. User Personas
+
+**Primary: Hackathon Judges** — Need to see working x402 on Stellar + creative use of agents.
+
+**Secondary: Developer/Builder** — Wants to plug their AI agent into a paid service marketplace.
+
+**Tertiary: Agent Owner** — Wants to monetize their API/tool without managing subscriptions.
+
+---
+
+## 4. Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  FRONTEND (Next.js 14 + React 18 + Tailwind)                │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │
+│  │AgentChat │ │TopologyG │ │ TxnLog   │ │ProtocolTrace  │  │
+│  └────┬─────┘ └──────────┘ └──────────┘ └───────────────┘  │
+│       │ POST /api/query    SSE /api/events                  │
+├───────┼─────────────────────────────────────────────────────┤
+│  BACKEND (Express + @x402/stellar)                          │
+│  ┌────▼──────────────────────────────────────────────────┐  │
+│  │  Manager Agent (Claude claude-sonnet-4-20250514)      │  │
+│  │  ┌─────────────────────────────────────────────────┐  │  │
+│  │  │ autonomousHiringDecision(reputation, cost)      │  │  │
+│  │  └──────────────┬──────────────────────────────────┘  │  │
+│  │                 │ x402 Payment (HTTP 402 → 200)        │  │
+│  │  ┌──────┬───────┼──────┬──────┬───────────────────┐   │  │
+│  │  │Price │News   │ Math │Summ. │ Research (recursive│   │  │
+│  │  │$0.001│$0.002 │$0.003│$0.002│  hires sub-agents)│   │  │
+│  │  └──────┴───────┴──────┴──────┴───────────────────┘   │  │
+│  └───────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│  SOROBAN SMART CONTRACT (Stellar Testnet)                   │
+│  agent-registry — Registration, Jobs, Reputation            │
+├─────────────────────────────────────────────────────────────┤
+│  x402 FACILITATOR (Official Stellar x402 Facilitator)       │
+│  https://x402-stellar-491bf9f7e30b.herokuapp.com/           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 5. Feature Specification
+
+### 5.1 Core Features (MVP — must ship)
+
+#### F1: Manager Agent (Claude-powered)
+- Receives natural language query from user
+- Uses Claude to plan multi-step task decomposition
+- Evaluates available worker agents by reputation + cost
+- Issues x402 HTTP requests to worker agents
+- Handles recursive hiring (Research agent hires sub-agents)
+- Streams execution steps via SSE
+
+#### F2: Worker Agent Registry (6 agents)
+| Agent | Endpoint | Price (USDC) | Recursive? |
+|---|---|---|---|
+| PriceFeed | `/agents/price` | 0.001 | No |
+| NewsDigest | `/agents/news` | 0.002 | No |
+| Summarizer | `/agents/summarize` | 0.001 | No |
+| SentimentAI | `/agents/sentiment` | 0.001 | No |
+| MathSolver | `/agents/math` | 0.002 | No |
+| DeepResearch | `/agents/research` | 0.01 | **Yes** → hires Summarizer + Sentiment |
+
+#### F3: x402 Payment Flow
+- Worker agents gate endpoints with x402 middleware
+- Manager agent wallet auto-signs Soroban auth entries
+- Official Stellar x402 facilitator processes payments
+- Every payment links to Stellar testnet explorer
+
+#### F4: Live Economy Dashboard
+- Real-time topology graph (Canvas/D3) showing User→Manager→Worker flows
+- Transaction log with A2A depth badges
+- Protocol trace (raw 402 headers visible)
+- Payment volume counter (USDC)
+
+#### F5: Soroban Reputation Contract
+- Agent registration with metadata
+- Job lifecycle: created → completed/failed
+- Reputation score (basis points: +50 success, -100 failure)
+- Dynamic pricing tier based on reputation
+
+#### F6: Stellar Sponsored Agent Accounts
+- One-click agent wallet creation (no XLM needed to start)
+- Uses Stellar native sponsorship to cover ~1.5 XLM setup
+- Auto-fund with testnet USDC via friendbot
+
+### 5.2 Bonus Features (differentiators, add if time permits)
+
+#### B1: Claude MCP Integration
+- MCP server exposing agent marketplace to Claude Code
+- Let judges interact via `claude` CLI during evaluation
+
+#### B2: Agent Service Discovery API
+- GET `/agents/catalog` — returns all agents with prices, reputation, capabilities
+- Bazaar-style discoverability (mentioned in hackathon ideas!)
+
+#### B3: Spending Policy Guards
+- Per-agent max-spend limits via contract accounts
+- Prevents runaway agent spending
+
+---
+
+## 6. Technical Stack
+
+| Layer | Technology | Why |
+|---|---|---|
+| Blockchain | Stellar Testnet | Required by hackathon |
+| Smart Contracts | Soroban (Rust) | Native to Stellar |
+| Payment Protocol | x402-stellar (`@x402/stellar`) | Official integration |
+| x402 Facilitator | Official Stellar facilitator | Already deployed |
+| Backend | Express.js + TypeScript | Fast to build |
+| LLM (Manager) | Claude claude-sonnet-4-20250514 | Tagged in hackathon! |
+| LLM (Fallback) | Groq llama-3.3-70b | Free tier, fast |
+| Frontend | Next.js 14 + Tailwind | Speed of development |
+| Topology Graph | D3.js or Canvas API | Real-time agent viz |
+| Streaming | Server-Sent Events (SSE) | Simple, works everywhere |
+| Agent Wallet | Stellar SDK + Sponsored Accounts | Instant onboarding |
+
+---
+
+## 7. Repository Structure
+
+```
+synergi-stellar/
+├── contracts/
+│   └── agent-registry/
+│       ├── src/lib.rs          # Soroban contract
+│       └── Cargo.toml
+├── backend/
+│   ├── src/
+│   │   ├── index.ts            # Express server entry
+│   │   ├── manager.ts          # Manager Agent (Claude)
+│   │   ├── agents/             # Worker agent endpoints
+│   │   │   ├── price.ts
+│   │   │   ├── news.ts
+│   │   │   ├── summarize.ts
+│   │   │   ├── sentiment.ts
+│   │   │   ├── math.ts
+│   │   │   └── research.ts     # Recursive agent
+│   │   ├── x402/
+│   │   │   ├── middleware.ts   # x402 paywall middleware
+│   │   │   └── client.ts      # x402 HTTP client (payer)
+│   │   ├── stellar/
+│   │   │   ├── wallet.ts      # Agent wallet management
+│   │   │   └── contract.ts    # Soroban contract calls
+│   │   └── sse.ts             # SSE event streaming
+│   ├── package.json
+│   └── tsconfig.json
+├── frontend/
+│   ├── src/
+│   │   ├── app/
+│   │   │   └── page.tsx        # Main dashboard
+│   │   └── components/
+│   │       ├── AgentChat.tsx
+│   │       ├── TopologyGraph.tsx
+│   │       ├── TransactionLog.tsx
+│   │       ├── ProtocolTrace.tsx
+│   │       └── AgentCatalog.tsx
+│   └── package.json
+├── mcp-server/
+│   └── src/index.ts            # MCP server for Claude Code
+├── SKILL.md                    # AI development skill
+├── README.md
+└── package.json                # Monorepo root
+```
+
+---
+
+## 8. Implementation Roadmap
+
+### Day 1-2 (April 1-2): Foundation
+- [ ] Scaffold monorepo with npm workspaces
+- [ ] Set up Stellar testnet wallets (manager + all worker agents)
+- [ ] Deploy Soroban agent-registry contract
+- [ ] Implement x402 middleware on all worker agents
+- [ ] Verify first x402 payment on testnet
+
+### Day 3-4 (April 3-4): Core Logic
+- [ ] Build Manager Agent with Claude API integration
+- [ ] Implement task decomposition and hiring decision logic
+- [ ] Build all 6 worker agents (5 simple + 1 recursive)
+- [ ] Test recursive hiring flow end-to-end
+
+### Day 5-6 (April 5-6): Frontend
+- [ ] Build dashboard layout (chat + topology + logs)
+- [ ] Implement real-time SSE consumption
+- [ ] Build topology graph with D3/Canvas
+- [ ] Protocol trace panel (raw x402 headers)
+
+### Day 7 (April 7): Polish
+- [ ] Reputation contract integration
+- [ ] Agent catalog / discovery API
+- [ ] MCP server implementation
+- [ ] Error handling + fallbacks
+
+### Day 8-9 (April 8-9): Testing + Demo
+- [ ] Full flow testing on testnet
+- [ ] Record 2-3 minute demo video
+- [ ] Write comprehensive README
+- [ ] Deploy to Render/Vercel/Railway
+
+### Day 10-13 (April 10-13): Submission Buffer
+- [ ] Final polish
+- [ ] Submit on DoraHacks before April 13 22:30
+
+---
+
+## 9. Submission Checklist
+
+- [ ] Public GitHub repo with complete source code
+- [ ] Clear README.md (what you built, how to run, what's mocked)
+- [ ] 2-3 minute demo video showing:
+  - User types query in chat
+  - Manager plans and hires workers
+  - Real x402 payments flowing
+  - Live topology graph updating
+  - Transaction log with Stellar explorer links
+- [ ] Stellar testnet transactions visible on-chain
+- [ ] Submitted on DoraHacks before April 13, 22:30
+
+---
+
+## 10. Winning Strategy
+
+**Why judges will pick this:**
+
+1. **Technical depth**: Recursive A2A + Soroban contract + x402 + Claude = full-stack hackathon
+2. **Alignment with prompt**: Hits every hackathon idea (agent wallets, A2A payments, service discovery, reputation)
+3. **Visual demo**: Topology graph with animated payment flows is *undeniable* in a 3-min video
+4. **Uses Claude**: Hackathon is literally tagged "Claude" — using Claude as the Manager Agent is strategic
+5. **Real on-chain**: Every payment is a real testnet transaction
+
+**Key differentiator over other submissions:** Most projects will do a simple "agent pays for one API call." SynergiStellar shows **recursive, autonomous, multi-agent economic coordination** — agents hiring agents — on Stellar.
+
+---
+
+## 11. Environment Variables
+
+```env
+# Backend
+ANTHROPIC_API_KEY=sk-ant-...
+GROQ_API_KEY=gsk_...           # Fallback LLM
+MANAGER_SECRET_KEY=S...        # Stellar secret key for manager wallet
+STELLAR_NETWORK=testnet        # or mainnet
+FACILITATOR_URL=https://x402-stellar-491bf9f7e30b.herokuapp.com
+CONTRACT_ID=C...               # Deployed Soroban contract
+
+# Frontend
+NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
+NEXT_PUBLIC_STELLAR_NETWORK=testnet
+```
+
+---
+
+## 12. Mock vs Real Distinction (README transparency)
+
+Be honest in your README — judges respect it:
+
+| Feature | Real / Mock |
+|---|---|
+| x402 payments | **REAL** — Stellar testnet USDC |
+| Agent wallet balances | **REAL** — funded via friendbot |
+| Soroban contract | **REAL** — deployed testnet |
+| Worker agent "intelligence" | Mock (simple rule-based responses) |
+| News/Price data | Mock (static JSON, not live APIs) |
+| Reputation scoring | Real on-chain, but seeded initial data |
+
+
+================================================
+FILE: hack/quickstart.md
+================================================
+# SynergiStellar — Quick Start Guide
+## From Zero to x402 Payments in 30 Minutes
+
+---
+
+## Prerequisites
+
+```bash
+node --version    # need 18+
+cargo --version   # need Rust (for Soroban contracts)
+stellar --version # install: cargo install --locked stellar-cli
+```
+
+---
+
+## Step 1: Clone & Install
+
+```bash
+git clone https://github.com/YOUR_USERNAME/synergi-stellar
+cd synergi-stellar
+npm run install:all  # installs all workspaces
+```
+
+**package.json (root):**
+```json
+{
+  "name": "synergi-stellar",
+  "workspaces": ["backend", "frontend", "mcp-server"],
+  "scripts": {
+    "install:all": "npm install && npm install --workspaces",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\""
+  }
+}
+```
+
+---
+
+## Step 2: Generate & Fund Wallets
+
+```bash
+# Run this script to generate all needed wallets
+node scripts/setup-wallets.js
+```
+
+**scripts/setup-wallets.js:**
+```javascript
+const { Keypair } = require('@stellar/stellar-sdk');
+const fetch = require('node-fetch');
+
+const wallets = [
+  'MANAGER',
+  'AGENT_PRICE',
+  'AGENT_NEWS',
+  'AGENT_SUMMARIZE',
+  'AGENT_SENTIMENT',
+  'AGENT_MATH',
+  'AGENT_RESEARCH',
+];
+
+async function setup() {
+  const envLines = [];
+
+  for (const name of wallets) {
+    const kp = Keypair.random();
+
+    // Fund with friendbot
+    await fetch(`https://friendbot.stellar.org?addr=${kp.publicKey()}`);
+    console.log(`✅ ${name}: ${kp.publicKey()}`);
+
+    envLines.push(`${name}_PUBLIC=${kp.publicKey()}`);
+    envLines.push(`${name}_SECRET=${kp.secret()}`);
+
+    await new Promise(r => setTimeout(r, 500)); // rate limit
+  }
+
+  require('fs').writeFileSync('backend/.env.generated', envLines.join('\n'));
+  console.log('\n✅ Wallets created! Copy backend/.env.generated into backend/.env');
+}
+
+setup();
+```
+
+---
+
+## Step 3: Deploy Soroban Contract
+
+```bash
+cd contracts/agent-registry
+
+# Build
+stellar contract build
+
+# Deploy to testnet
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/agent_registry.wasm \
+  --source-account YOUR_MANAGER_SECRET \
+  --network testnet
+
+# Save the output CONTRACT_ID to backend/.env
+```
+
+---
+
+## Step 4: Configure Environment
+
+```bash
+cp backend/.env.example backend/.env
+# Fill in:
+# - ANTHROPIC_API_KEY (get at console.anthropic.com)
+# - GROQ_API_KEY (free at console.groq.com)
+# - All SECRET keys from Step 2
+# - CONTRACT_ID from Step 3
+```
+
+---
+
+## Step 5: Start Development
+
+```bash
+# Terminal 1
+npm run dev:backend    # starts on :4000
+
+# Terminal 2
+npm run dev:frontend   # starts on :3000
+
+# Terminal 3 (optional — MCP for Claude Code)
+cd mcp-server && npm run dev
+```
+
+Open http://localhost:3000 → type "Research the latest AI trends and summarize them" → watch the economy come alive!
+
+---
+
+## Step 6: Verify x402 Payments
+
+After a query, check:
+1. Transaction log in dashboard
+2. Click any tx hash → Stellar testnet explorer
+3. You should see real USDC transfers between agent wallets
+
+---
+
+## Testnet USDC
+
+The friendbot only gives XLM. For USDC on testnet:
+
+**Option A** (easiest): Use https://xlm402.com — it's a testnet x402 demo that also shows how to get testnet USDC.
+
+**Option B**: Use Stellar Lab → https://laboratory.stellar.org → Assets → Testnet USDC issuer: `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`
+
+**Option C**: Use the SEP-24 testnet anchor at https://testanchor.stellar.org
+
+---
+
+## Demo Script (for your video)
+
+1. Open dashboard at localhost:3000
+2. Type: **"Research quantum computing, analyze sentiment of recent news, and give me a price check on XLM"**
+3. Narrate what's happening:
+   - "Manager Agent (Claude) is planning the task..."
+   - "It's hiring DeepResearch for 0.01 USDC..."
+   - "DeepResearch recursively hired Summarizer and SentimentAI..."
+   - "PriceFeed was also hired for XLM price..."
+   - "All payments settled in under 5 seconds on Stellar..."
+   - "Here are the on-chain transactions..." (click explorer links)
+4. Show the topology graph with animated payment flows
+5. Show the protocol trace with raw 402 headers
+
+---
+
+## Submission Checklist
+
+- [ ] `README.md` is comprehensive (what's real vs mocked)
+- [ ] All x402 payments link to Stellar testnet explorer
+- [ ] Soroban contract address in README
+- [ ] `SKILL.md` at repo root
+- [ ] Demo video is 2-3 minutes, shows full A2A flow
+- [ ] Repo is public
+- [ ] Submitted at dorahacks.io before April 13, 22:30
+
+
+================================================
+FILE: hack/skill.md
+================================================
+# SKILL: SynergiStellar — x402 Agent Economy on Stellar
+
+> Drop this file at the root of the repo. Invoke in Claude Code with:
+> `stellar-synergi:build` or just paste relevant sections into your prompt.
+
+---
+
+## Project Overview
+
+SynergiStellar is a recursive Agent-to-Agent (A2A) economy where AI agents hire and pay each other using x402 micropayments on Stellar. Manager Agent (Claude-powered) receives queries, decomposes tasks, evaluates worker agents by reputation/cost, and settles payments via USDC on Stellar testnet.
+
+**Stack:** Express + TypeScript backend | Next.js 14 frontend | Soroban (Rust) smart contracts | @x402/stellar | Claude API
+
+---
+
+## Key Packages
+
+```bash
+# Backend
+npm install @stellar/stellar-sdk @x402/stellar express typescript ts-node dotenv @anthropic-ai/sdk
+
+# Frontend
+npm install next react react-dom d3 tailwindcss typescript
+
+# Contracts
+# Uses Stellar CLI + Rust toolchain
+cargo add soroban-sdk
+```
+
+---
+
+## Pattern 1: x402 Worker Agent (Protected Endpoint)
+
+```typescript
+// backend/src/x402/middleware.ts
+import { paymentMiddleware } from '@x402/stellar';
+
+export function createPaywall(priceUSDC: number) {
+  return paymentMiddleware({
+    amount: priceUSDC,                          // e.g. 0.001 = $0.001 USDC
+    asset: 'USDC',
+    facilitatorUrl: process.env.FACILITATOR_URL!,
+    network: process.env.STELLAR_NETWORK as 'testnet' | 'mainnet',
+  });
+}
+
+// backend/src/agents/price.ts
+import express from 'express';
+import { createPaywall } from '../x402/middleware';
+
+const router = express.Router();
+
+router.get('/', createPaywall(0.001), async (req, res) => {
+  // This only runs after x402 payment is verified
+  res.json({
+    agent: 'PriceFeed',
+    data: { BTC: 65000, ETH: 3200, XLM: 0.12 },
+    paidAt: new Date().toISOString(),
+  });
+});
+
+export default router;
+```
+
+---
+
+## Pattern 2: x402 Client (Manager Agent Payer)
+
+```typescript
+// backend/src/x402/client.ts
+import { wrapFetch } from '@x402/stellar';
+import { Keypair } from '@stellar/stellar-sdk';
+
+const managerKeypair = Keypair.fromSecret(process.env.MANAGER_SECRET_KEY!);
+
+// This fetch wrapper automatically handles 402 → sign → retry
+export const x402Fetch = wrapFetch(fetch, {
+  keypair: managerKeypair,
+  network: process.env.STELLAR_NETWORK as 'testnet' | 'mainnet',
+});
+
+// Usage in manager:
+// const result = await x402Fetch('http://localhost:4000/agents/price');
+// Payment is automatic — no manual signing needed
+```
+
+---
+
+## Pattern 3: Manager Agent (Claude Task Planner)
+
+```typescript
+// backend/src/manager.ts
+import Anthropic from '@anthropic-ai/sdk';
+import { x402Fetch } from './x402/client';
+import { getAgentCatalog } from './stellar/contract';
+
+const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+interface AgentInfo {
+  name: string;
+  endpoint: string;
+  price: number;
+  reputation: number;
+  capabilities: string[];
+}
+
+export async function processQuery(
+  query: string,
+  emit: (event: string, data: any) => void  // SSE emitter
+): Promise<void> {
+
+  const agents = await getAgentCatalog();
+  emit('status', { message: 'Planning task...', agents: agents.length });
+
+  // Step 1: Ask Claude to plan
+  const planResponse = await claude.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1000,
+    messages: [{
+      role: 'user',
+      content: `You are an autonomous manager agent. Given this query: "${query}"
+
+Available worker agents: ${JSON.stringify(agents, null, 2)}
+
+Respond ONLY with JSON:
+{
+  "plan": "brief explanation",
+  "steps": [
+    { "agentName": "AgentName", "reason": "why", "input": "what to send" }
+  ]
+}`
+    }]
+  });
+
+  const planText = planResponse.content[0].type === 'text' ? planResponse.content[0].text : '{}';
+  const plan = JSON.parse(planText.replace(/```json|```/g, '').trim());
+
+  emit('plan', plan);
+
+  // Step 2: Execute each step with x402 payments
+  const results: any[] = [];
+  for (const step of plan.steps) {
+    const agent = agents.find(a => a.name === step.agentName);
+    if (!agent) continue;
+
+    emit('hiring', { agent: agent.name, price: agent.price, reason: step.reason });
+
+    try {
+      const response = await x402Fetch(`http://localhost:4000/agents/${agent.endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: step.input }),
+      });
+
+      const data = await response.json();
+      results.push({ agent: agent.name, result: data });
+
+      emit('paid', {
+        agent: agent.name,
+        amount: agent.price,
+        txHash: data.txHash,
+        explorerUrl: `https://stellar.expert/explorer/testnet/tx/${data.txHash}`
+      });
+    } catch (err) {
+      emit('error', { agent: agent.name, error: String(err) });
+    }
+  }
+
+  // Step 3: Synthesize results with Claude
+  const summaryResponse = await claude.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 500,
+    messages: [{
+      role: 'user',
+      content: `User asked: "${query}". Agent results: ${JSON.stringify(results)}. Provide a clear, concise answer.`
+    }]
+  });
+
+  const summary = summaryResponse.content[0].type === 'text' ? summaryResponse.content[0].text : '';
+  emit('complete', { summary, totalAgents: results.length });
+}
+```
+
+---
+
+## Pattern 4: Recursive Agent (DeepResearch)
+
+```typescript
+// backend/src/agents/research.ts
+import { createPaywall } from '../x402/middleware';
+import { x402Fetch } from '../x402/client';
+
+router.post('/', createPaywall(0.01), async (req, res) => {
+  const { input, depth = 0 } = req.body;
+
+  // Recursive A2A: Research agent hires sub-agents
+  const [summaryRes, sentimentRes] = await Promise.all([
+    x402Fetch('http://localhost:4000/agents/summarize', {
+      method: 'POST',
+      body: JSON.stringify({ input, parentDepth: depth }),
+    }),
+    x402Fetch('http://localhost:4000/agents/sentiment', {
+      method: 'POST',
+      body: JSON.stringify({ input, parentDepth: depth }),
+    })
+  ]);
+
+  const summary = await summaryRes.json();
+  const sentiment = await sentimentRes.json();
+
+  res.json({
+    agent: 'DeepResearch',
+    depth,
+    subAgentsHired: ['Summarizer', 'SentimentAI'],
+    result: { summary: summary.data, sentiment: sentiment.data },
+    totalCost: 0.01 + 0.001 + 0.001,  // research + summarize + sentiment
+  });
+});
+```
+
+---
+
+## Pattern 5: Soroban Agent Registry Contract
+
+```rust
+// contracts/agent-registry/src/lib.rs
+#![no_std]
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
+
+#[contracttype]
+pub struct Agent {
+    pub name: String,
+    pub owner: Address,
+    pub endpoint: String,
+    pub price_usdc: i128,   // in stroops: 1 = 0.0000001 USDC
+    pub reputation: i128,   // basis points 0-10000
+    pub jobs_completed: u64,
+    pub jobs_failed: u64,
+}
+
+#[contracttype]
+pub enum DataKey {
+    Agent(Symbol),
+    AgentList,
+}
+
+#[contract]
+pub struct AgentRegistry;
+
+#[contractimpl]
+impl AgentRegistry {
+    pub fn register_agent(
+        env: Env,
+        name: Symbol,
+        owner: Address,
+        endpoint: String,
+        price_usdc: i128,
+    ) {
+        owner.require_auth();
+        let agent = Agent {
+            name: String::from_str(&env, ""),
+            owner: owner.clone(),
+            endpoint,
+            price_usdc,
+            reputation: 5000,   // Start at 50% reputation
+            jobs_completed: 0,
+            jobs_failed: 0,
+        };
+        env.storage().persistent().set(&DataKey::Agent(name.clone()), &agent);
+    }
+
+    pub fn record_job_result(env: Env, name: Symbol, success: bool) {
+        let mut agent: Agent = env.storage().persistent().get(&DataKey::Agent(name.clone())).unwrap();
+        if success {
+            agent.jobs_completed += 1;
+            agent.reputation = (agent.reputation + 50).min(10000);
+        } else {
+            agent.jobs_failed += 1;
+            agent.reputation = (agent.reputation - 100).max(0);
+        }
+        env.storage().persistent().set(&DataKey::Agent(name), &agent);
+    }
+
+    pub fn get_agent(env: Env, name: Symbol) -> Option<Agent> {
+        env.storage().persistent().get(&DataKey::Agent(name))
+    }
+}
+```
+
+---
+
+## Pattern 6: SSE Streaming (Backend)
+
+```typescript
+// backend/src/sse.ts
+import { Response } from 'express';
+
+export class SSEEmitter {
+  private clients: Map<string, Response> = new Map();
+
+  addClient(id: string, res: Response) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.write('data: {"type":"connected"}\n\n');
+    this.clients.set(id, res);
+  }
+
+  emit(id: string, eventType: string, data: any) {
+    const client = this.clients.get(id);
+    if (client) {
+      client.write(`data: ${JSON.stringify({ type: eventType, ...data })}\n\n`);
+    }
+  }
+
+  removeClient(id: string) {
+    this.clients.delete(id);
+  }
+}
+```
+
+---
+
+## Pattern 7: Stellar Wallet Setup (testnet)
+
+```typescript
+// backend/src/stellar/wallet.ts
+import { Keypair, Networks, StellarSdk } from '@stellar/stellar-sdk';
+import fetch from 'node-fetch';
+
+export async function createAndFundWallet(): Promise<{ publicKey: string; secretKey: string }> {
+  const keypair = Keypair.random();
+
+  // Fund with friendbot (testnet only)
+  await fetch(`https://friendbot.stellar.org?addr=${keypair.publicKey()}`);
+
+  return {
+    publicKey: keypair.publicKey(),
+    secretKey: keypair.secret(),
+  };
+}
+
+// Pre-generate wallets for each agent and put secret keys in .env
+// Run once: npx ts-node -e "const {createAndFundWallet} = require('./src/stellar/wallet'); createAndFundWallet().then(console.log)"
+```
+
+---
+
+## Pattern 8: Frontend SSE Consumer + Topology
+
+```typescript
+// frontend/src/components/AgentChat.tsx — SSE hook
+import { useState, useEffect, useRef } from 'react';
+
+export function useAgentStream(sessionId: string) {
+  const [events, setEvents] = useState<any[]>([]);
+
+  useEffect(() => {
+    const es = new EventSource(`/api/events/${sessionId}`);
+
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      setEvents(prev => [...prev, data]);
+    };
+
+    return () => es.close();
+  }, [sessionId]);
+
+  return events;
+}
+```
+
+---
+
+## Deployment (Render.com — free tier)
+
+```yaml
+# render.yaml
+services:
+  - type: web
+    name: synergi-backend
+    env: node
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && npm start
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: MANAGER_SECRET_KEY
+        sync: false
+      - key: FACILITATOR_URL
+        value: https://x402-stellar-491bf9f7e30b.herokuapp.com
+
+  - type: web
+    name: synergi-frontend
+    env: node
+    buildCommand: cd frontend && npm install && npm run build
+    startCommand: cd frontend && npm start
+```
+
+---
+
+## Common Pitfalls
+
+1. **x402 payment fails silently** → Check facilitator URL is correct testnet endpoint
+2. **Manager wallet has no USDC** → Fund with testnet USDC at https://xlm402.com or laboratory.stellar.org
+3. **Soroban contract not found** → Always use CONTRACT_ID from deploy output, not hardcoded
+4. **SSE drops connection** → Add `res.flushHeaders()` immediately after setting headers
+5. **Claude returns non-JSON** → Always wrap parse in try/catch + strip markdown fences
+6. **Recursive depth loop** → Add `depth` param and `if (depth > 2) return early`
+
+---
+
+## Quick Testnet Setup
+
+```bash
+# 1. Generate manager wallet
+npx ts-node -e "
+const { Keypair } = require('@stellar/stellar-sdk');
+const kp = Keypair.random();
+console.log('Public:', kp.publicKey());
+console.log('Secret:', kp.secret());
+"
+
+# 2. Fund with friendbot
+curl "https://friendbot.stellar.org?addr=YOUR_PUBLIC_KEY"
+
+# 3. Get testnet USDC (via SEP-24 at testanchor.stellar.org or xlm402.com)
+
+# 4. Deploy Soroban contract
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/agent_registry.wasm \
+  --source MANAGER_SECRET_KEY \
+  --network testnet
+```
+
+
+================================================
+FILE: hack/todo.md
+================================================
+# SynergiStellar Implementation Plan
+
+## Scope
+
+- Build the full SynergiStellar project in a separate directory: `../synergi-stellar`
+- Deliver a working monorepo with:
+  - Express + TypeScript backend
+  - Next.js frontend dashboard
+  - Soroban contract scaffold in Rust
+  - MCP server in TypeScript
+  - Local dev scripts, env examples, and docs
+- Prioritize production-like structure and end-to-end runnable flow with mocked external data where needed.
+
+## Delivery Checklist
+
+### 1) Repository and Workspace Setup
+
+- [x] Create `synergi-stellar/` as sibling of `hack/`
+- [x] Initialize npm workspaces at root
+- [x] Add shared scripts for install, dev, build, lint
+- [x] Add root `.gitignore`
+
+### 2) Backend (Express + TypeScript)
+
+- [x] Create backend TypeScript project config
+- [x] Implement environment loader and validation
+- [x] Implement SSE session manager
+- [x] Implement x402 middleware wrapper
+- [x] Implement x402 client wrapper with graceful fallback mode
+- [x] Implement in-memory transaction store with explorer links
+- [x] Implement worker agents:
+  - [x] PriceFeed
+  - [x] NewsDigest
+  - [x] Summarizer
+  - [x] SentimentAI
+  - [x] MathSolver
+  - [x] DeepResearch (recursive)
+- [x] Implement manager orchestration service using Claude with fallback planner
+- [x] Implement REST APIs:
+  - [x] `POST /api/query`
+  - [x] `GET /api/events/:sessionId`
+  - [x] `GET /api/status/:sessionId`
+  - [x] `GET /api/transactions`
+  - [x] `GET /api/wallet/balance`
+  - [x] `POST /api/wallet/create`
+  - [x] `GET /agents/catalog`
+  - [x] `GET /agents/reputation/:agentName`
+
+### 3) Frontend (Next.js 14 + Tailwind)
+
+- [x] Initialize app router project structure
+- [x] Build dashboard page layout
+- [x] Build components:
+  - [x] `AgentChat`
+  - [x] `TopologyGraph`
+  - [x] `TransactionLog`
+  - [x] `ProtocolTrace`
+  - [x] `AgentCatalog`
+- [x] Implement SSE client hook for live updates
+- [x] Implement API proxy routes to backend
+- [x] Show payment metrics and session status
+
+### 4) Contract (Soroban / Rust)
+
+- [x] Add `contracts/agent-registry` crate
+- [x] Implement contract models (`Agent`, `DataKey`)
+- [x] Implement register/get/list functions
+- [x] Implement job result reputation updates
+- [x] Add build instructions in docs
+
+### 5) MCP Server
+
+- [x] Initialize TypeScript MCP server project
+- [x] Expose tools:
+  - [x] list agents
+  - [x] query manager agent
+  - [x] agent reputation
+  - [x] direct agent call
+  - [x] transaction history
+  - [x] wallet balance
+  - [x] create agent wallet
+- [x] Implement robust backend HTTP helper and error formatting
+
+### 6) Scripts, Configuration, and Docs
+
+- [x] Add backend `.env.example`
+- [x] Add frontend `.env.local.example`
+- [x] Add utility script for wallet generation/funding
+- [x] Add README with setup, run, architecture, real-vs-mock details
+- [x] Add quick verification steps for x402 flow
+
+### 7) Quality and Build Validation
+
+- [x] Install dependencies for all workspaces
+- [x] Run backend build
+- [x] Run frontend build
+- [x] Run MCP server build
+- [x] Run root aggregate build
+- [x] Fix compile errors related to this implementation
+
+### 8) Frontend Brand, Legal, and SEO Completeness
+
+- [x] Add brand logo SVG asset
+- [x] Add reusable logo component in layout/header
+- [x] Add privacy policy page and route
+- [x] Add Open Graph dynamic image route
+- [x] Add robots metadata route
+- [x] Add sitemap metadata route
+- [x] Add web manifest metadata route
+- [x] Add global metadata for OpenGraph/Twitter/canonical tags
+
+### 9) Frontend Light-Mode Playful UX and Docs Rendering
+
+- [x] Refresh global light-mode visual system (cards, gradients, soft shadows)
+- [x] Add playful micro-interactions (hover lift, transitions, subtle animation)
+- [x] Improve header and footer sections with cleaner navigation and status chips
+- [x] Restyle dashboard panels for better light-mode readability and hierarchy
+- [x] Add top-level `docs/` directory with project markdown documents
+- [x] Add `/docs` listing page in frontend
+- [x] Add `/docs/[slug]` dynamic markdown page renderer
+- [x] Enable proper markdown rendering with GFM support and styled prose classes
+
+## Implementation Notes
+
+- Keep comments minimal and only where needed for clarity.
+- Do not use emojis in code or docs.
+- Keep types explicit and avoid loosely typed public interfaces.
+- Keep architecture modular for hackathon iteration speed.
+
+
+
+================================================
+FILE: synergi-stellar/README.md
+================================================
+# SynergiStellar
+
+SynergiStellar is a hackathon-ready autonomous agent economy on Stellar. It includes a manager agent, paid worker agents, x402-style payment flow, live SSE dashboard, Soroban contract scaffold, and MCP server tools.
+
+## Project Structure
+
+```
+synergi-stellar/
+├── backend/
+├── frontend/
+├── contracts/agent-registry/
+├── mcp-server/
+└── scripts/
+```
+
+## Prerequisites
+
+- Node.js 18+
+- npm 9+
+- Rust + Cargo (for Soroban contract build)
+- Stellar CLI (optional for on-chain deploy)
+
+## Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+npm run install:all
+```
+
+2. Configure backend environment:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+3. Configure frontend environment:
+
+```bash
+cp frontend/.env.local.example frontend/.env.local
+```
+
+## Run locally
+
+```bash
+npm run dev
+```
+
+- Backend: http://localhost:4000
+- Frontend: http://localhost:3000
+
+## Build all workspaces
+
+```bash
+npm run build
+```
+
+## Contract build
+
+```bash
+cd contracts/agent-registry
+cargo build --release
+```
+
+For Stellar deploy, use `stellar contract deploy` with your testnet identity.
+
+## MCP server
+
+Run the MCP server:
+
+```bash
+npm run dev:mcp
+```
+
+Set `BACKEND_URL` if backend is not on localhost:4000.
+
+## API summary
+
+- `POST /api/query`
+- `GET /api/events/:sessionId`
+- `GET /api/status/:sessionId`
+- `GET /api/transactions`
+- `GET /api/wallet/balance`
+- `POST /api/wallet/create`
+- `GET /agents/catalog`
+- `GET /agents/reputation/:agentName`
+
+## Real vs Mock
+
+- x402 integration supports two modes:
+  - mock mode: `X402_MODE=mock` (default), local simulation
+  - real mode: `X402_MODE=real`, official facilitator verification/settlement with `@x402/stellar`
+- To enforce demo-day fail-fast behavior, set:
+  - `X402_ENFORCE=true`
+  - `X402_MODE=real`
+  - `X402_REAL_ONLY=true`
+- In real mode, set manager and agent Stellar keys in `backend/.env`:
+  - `MANAGER_SECRET_KEY`
+  - `AGENT_PRICE_PUBLIC_KEY`, `AGENT_NEWS_PUBLIC_KEY`, `AGENT_SUMMARIZER_PUBLIC_KEY`, `AGENT_SENTIMENT_PUBLIC_KEY`, `AGENT_MATH_PUBLIC_KEY`, `AGENT_RESEARCH_PUBLIC_KEY`
+- Wallet and transaction explorer links: real transaction URLs; simulated paths are clearly labeled when not settled
+- Worker data sources: mocked deterministic responses
+- Soroban contract: real Rust scaffold ready for testnet deployment
+
+
+
+================================================
+FILE: synergi-stellar/package.json
+================================================
+{
+  "name": "synergi-stellar",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "mcp-server"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspaces",
+    "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:mcp": "npm run dev -w mcp-server",
+    "build": "npm run build -w backend && npm run build -w frontend && npm run build -w mcp-server",
+    "lint": "npm run lint -w backend && npm run lint -w frontend && npm run lint -w mcp-server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/package.json
+================================================
+{
+  "name": "synergi-stellar-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@stellar/stellar-sdk": "^13.3.0",
+    "@x402/express": "^2.8.0",
+    "@x402/fetch": "^2.8.0",
+    "@x402/stellar": "^2.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/tsconfig.json
+================================================
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*"
+  ]
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/.env.example
+================================================
+NODE_ENV=development
+PORT=4000
+BACKEND_BASE_URL=http://localhost:4000
+ANTHROPIC_API_KEY=
+GROQ_API_KEY=
+MANAGER_SECRET_KEY=
+STELLAR_NETWORK=testnet
+X402_MODE=mock
+X402_REAL_ONLY=false
+FACILITATOR_URL=https://x402-stellar-491bf9f7e30b.herokuapp.com
+X402_MAX_TIMEOUT_SECONDS=90
+X402_USDC_ASSET_ADDRESS=
+AGENT_PRICE_PUBLIC_KEY=
+AGENT_NEWS_PUBLIC_KEY=
+AGENT_SUMMARIZER_PUBLIC_KEY=
+AGENT_SENTIMENT_PUBLIC_KEY=
+AGENT_MATH_PUBLIC_KEY=
+AGENT_RESEARCH_PUBLIC_KEY=
+CONTRACT_ID=LOCAL_MOCK_CONTRACT
+X402_ENFORCE=false
+
+
+================================================
+FILE: synergi-stellar/backend/src/config.ts
+================================================
+import dotenv from 'dotenv';
+import { z } from 'zod';
+
+dotenv.config();
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PORT: z.coerce.number().default(4000),
+  BACKEND_BASE_URL: z.string().default('http://localhost:4000'),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
+  MANAGER_SECRET_KEY: z.string().optional(),
+  STELLAR_NETWORK: z.enum(['testnet', 'mainnet']).default('testnet'),
+  X402_MODE: z.enum(['mock', 'real']).default('mock'),
+  X402_REAL_ONLY: z.enum(['true', 'false']).default('false'),
+  FACILITATOR_URL: z.string().default('https://x402-stellar-491bf9f7e30b.herokuapp.com'),
+  X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(90),
+  X402_USDC_ASSET_ADDRESS: z.string().optional(),
+  AGENT_PRICE_PUBLIC_KEY: z.string().optional(),
+  AGENT_NEWS_PUBLIC_KEY: z.string().optional(),
+  AGENT_SUMMARIZER_PUBLIC_KEY: z.string().optional(),
+  AGENT_SENTIMENT_PUBLIC_KEY: z.string().optional(),
+  AGENT_MATH_PUBLIC_KEY: z.string().optional(),
+  AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
+  CONTRACT_ID: z.string().default('LOCAL_MOCK_CONTRACT'),
+  X402_ENFORCE: z.enum(['true', 'false']).default('false')
+});
+
+export const env = envSchema.parse(process.env);
+export const isX402Enforced = env.X402_ENFORCE === 'true';
+export const isX402RealMode = env.X402_MODE === 'real';
+export const isX402RealOnly = env.X402_REAL_ONLY === 'true';
+
+export function getStellarCaip2Network(): 'stellar:testnet' | 'stellar:pubnet' {
+  return env.STELLAR_NETWORK === 'mainnet' ? 'stellar:pubnet' : 'stellar:testnet';
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/index.ts
+================================================
+import cors from 'cors';
+import express from 'express';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { env } from './config.js';
+import agentsRouter from './agents/index.js';
+import { startQuerySession } from './manager.js';
+import { getProtocolTrace, getSessionMetrics, getSessionStatus, getSessionTransactions, listTransactions } from './lib/store.js';
+import { ApiErrorPayload } from './lib/types.js';
+import { sseHub } from './sse.js';
+import { getAgentCatalog, getAgentByName } from './stellar/contract.js';
+import { createSponsoredWallet, getManagerWalletBalance } from './stellar/wallet.js';
+
+const app = express();
+
+const querySchema = z.object({
+  query: z.string().min(3)
+});
+
+const sessionParamSchema = z.object({
+  sessionId: z.string().min(10)
+});
+
+const transactionQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(20),
+  sessionId: z.string().optional()
+});
+
+const walletCreateSchema = z.object({
+  name: z.string().min(2).max(80).optional()
+});
+
+function ok<T>(data: T) {
+  return { ok: true as const, data };
+}
+
+function fail(error: ApiErrorPayload) {
+  return { ok: false as const, error };
+}
+
+app.use(cors());
+app.use(express.json());
+
+app.get('/health', (_, res) => {
+  res.json(ok({ status: 'ok', service: 'synergi-stellar-backend' }));
+});
+
+app.use('/agents', agentsRouter);
+
+app.get('/agents/catalog', (_, res) => {
+  const catalog = getAgentCatalog();
+  res.json(
+    ok({
+      items: catalog,
+      count: catalog.length,
+      generatedAt: new Date().toISOString()
+    })
+  );
+});
+
+app.get('/agents/reputation/:agentName', (req, res) => {
+  const agentName = req.params.agentName as Parameters<typeof getAgentByName>[0];
+  const agent = getAgentByName(agentName);
+  if (!agent) {
+    res.status(404).json(fail({ code: 'AGENT_NOT_FOUND', message: 'Agent not found' }));
+    return;
+  }
+  res.json(
+    ok({
+      name: agent.name,
+      reputation: agent.reputation,
+      jobsCompleted: agent.jobsCompleted,
+      jobsFailed: agent.jobsFailed,
+      priceUsdc: agent.price
+    })
+  );
+});
+
+app.post('/api/query', (req, res) => {
+  const parsed = querySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid query payload',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+
+  const sessionId = startQuerySession(parsed.data.query.trim());
+  res.json(ok({ sessionId }));
+});
+
+app.get('/api/events/:sessionId', (req, res) => {
+  const parsed = sessionParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid session id',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+  const sessionId = parsed.data.sessionId;
+  sseHub.addClient(sessionId, res);
+
+  req.on('close', () => {
+    sseHub.removeClient(sessionId);
+  });
+});
+
+app.get('/api/status/:sessionId', (req, res) => {
+  const parsed = sessionParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid session id',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+
+  const sessionId = parsed.data.sessionId;
+  const session = getSessionStatus(sessionId);
+  if (!session) {
+    res.status(404).json(fail({ code: 'SESSION_NOT_FOUND', message: 'Session not found' }));
+    return;
+  }
+  res.json(
+    ok({
+      ...session,
+      protocolTrace: getProtocolTrace(sessionId),
+      metrics: getSessionMetrics(sessionId),
+      transactions: getSessionTransactions(sessionId, 100)
+    })
+  );
+});
+
+app.get('/api/transactions', (req, res) => {
+  const parsed = transactionQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid transactions query',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+  const records = listTransactions(parsed.data.limit, parsed.data.sessionId);
+  res.json(
+    ok({
+      items: records,
+      count: records.length,
+      limit: parsed.data.limit,
+      sessionId: parsed.data.sessionId ?? null
+    })
+  );
+});
+
+app.get('/api/wallet/balance', (_, res) => {
+  res.json(ok(getManagerWalletBalance()));
+});
+
+app.post('/api/wallet/create', (req, res) => {
+  const parsed = walletCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid wallet payload',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+  const name = String(parsed.data.name ?? `Agent-${randomUUID().slice(0, 8)}`);
+  const wallet = createSponsoredWallet(name);
+  res.json(ok(wallet));
+});
+
+app.listen(env.PORT, () => {
+  // eslint-disable-next-line no-console
+  console.log(`SynergiStellar backend running on port ${env.PORT}`);
+});
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/manager.ts
+================================================
+import Anthropic from '@anthropic-ai/sdk';
+import { randomUUID } from 'node:crypto';
+import { env } from './config.js';
+import {
+  addTransaction,
+  completeSession,
+  createSessionStatus,
+  getSessionMetrics,
+  registerPaymentToSession,
+  registerSessionError,
+  updateSessionStatus
+} from './lib/store.js';
+import { AgentCatalogItem, AgentName } from './lib/types.js';
+import { sseHub } from './sse.js';
+import { getAgentCatalog, recordJobResult } from './stellar/contract.js';
+import { x402FetchJson } from './x402/client.js';
+
+interface ManagerStep {
+  agentName: AgentName;
+  reason: string;
+  input: string;
+  depth?: number;
+}
+
+interface WorkerResponse {
+  agent: string;
+  pricePaid: number;
+  data: unknown;
+  txHash: string;
+}
+
+interface RecursiveSubTransaction {
+  agent: string;
+  txHash: string;
+  pricePaid: number;
+  from?: string;
+  depth?: number;
+  fallbackUsed?: boolean;
+  attempts?: number;
+}
+
+const AGENT_TIMEOUT_MS = 9000;
+const MAX_RECURSION_DEPTH = 2;
+
+const claude = env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  : null;
+
+export function startQuerySession(query: string): string {
+  const sessionId = randomUUID();
+  createSessionStatus(sessionId, query);
+  void runManagerSession(sessionId, query);
+  return sessionId;
+}
+
+async function runManagerSession(sessionId: string, query: string): Promise<void> {
+  sseHub.emit(sessionId, 'status', { message: 'Manager started planning', stage: 'planning' });
+  try {
+    const catalog = getAgentCatalog();
+    const plan = await createPlan(query, catalog);
+    const normalizedPlan = normalizePlanSteps(plan.steps, catalog, query);
+    const prioritized = prioritizeSteps(normalizedPlan, catalog);
+
+    updateSessionStatus(sessionId, {
+      totalSteps: prioritized.length,
+      completedSteps: 0
+    });
+
+    sseHub.emit(sessionId, 'plan', {
+      plan: plan.explanation,
+      steps: prioritized
+    });
+
+    const outputs: Array<{ agent: string; result: unknown }> = [];
+    let completedSteps = 0;
+
+    for (const step of prioritized) {
+      const worker = catalog.find((item) => item.name === step.agentName);
+      if (!worker) continue;
+      const depth = Math.min(step.depth ?? 1, MAX_RECURSION_DEPTH);
+
+      sseHub.emit(sessionId, 'step-start', {
+        step: completedSteps + 1,
+        totalSteps: prioritized.length,
+        agent: worker.name,
+        depth
+      });
+
+      sseHub.emit(sessionId, 'hiring', {
+        agent: worker.name,
+        price: worker.price,
+        reason: step.reason,
+        depth
+      });
+
+      const endpointUrl = `${env.BACKEND_BASE_URL}/agents/${worker.endpoint}`;
+      try {
+        const response = await x402FetchJson<WorkerResponse>(sessionId, endpointUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: step.input, depth })
+        }, {
+          retries: 2,
+          timeoutMs: AGENT_TIMEOUT_MS,
+          agentName: worker.name,
+          fallbackFactory: (reason) => ({
+            agent: worker.name,
+            pricePaid: 0,
+            data: { fallback: true, reason },
+            txHash: `fallback-${worker.endpoint}-${Date.now().toString(16)}`
+          })
+        });
+
+        outputs.push({
+          agent: worker.name,
+          result: response.data.data
+        });
+
+        addTransaction({
+          from: 'ManagerAgent',
+          to: worker.name,
+          amount: response.data.pricePaid,
+          txHash: response.data.txHash,
+          sessionId,
+          depth
+        });
+
+        registerPaymentToSession(sessionId, response.data.txHash, response.data.pricePaid, worker.name);
+        recordJobResult(worker.name, true);
+        completedSteps += 1;
+        updateSessionStatus(sessionId, { completedSteps });
+
+        sseHub.emit(sessionId, 'paid', {
+          source: 'ManagerAgent',
+          agent: worker.name,
+          amount: response.data.pricePaid,
+          txHash: response.data.txHash,
+          explorerUrl: `https://stellar.expert/explorer/testnet/tx/${response.data.txHash}`,
+          fallbackUsed: response.fallbackUsed,
+          attempts: response.attempts,
+          depth
+        });
+
+        const recursiveTransactions = extractRecursiveTransactions(response.data.data);
+        for (const subTx of recursiveTransactions) {
+          const resolvedDepth = Number.isFinite(subTx.depth) ? Number(subTx.depth) : depth + 1;
+          addTransaction({
+            from: subTx.from ?? worker.name,
+            to: subTx.agent,
+            amount: subTx.pricePaid,
+            txHash: subTx.txHash,
+            sessionId,
+            depth: Math.max(depth + 1, resolvedDepth)
+          });
+
+          registerPaymentToSession(sessionId, subTx.txHash, subTx.pricePaid, subTx.agent);
+
+          sseHub.emit(sessionId, 'recursive-paid', {
+            source: subTx.from ?? worker.name,
+            agent: subTx.agent,
+            amount: subTx.pricePaid,
+            txHash: subTx.txHash,
+            explorerUrl: `https://stellar.expert/explorer/testnet/tx/${subTx.txHash}`,
+            depth: Math.max(depth + 1, resolvedDepth),
+            parentAgent: worker.name,
+            fallbackUsed: Boolean(subTx.fallbackUsed),
+            attempts: Number(subTx.attempts ?? 1)
+          });
+        }
+
+        sseHub.emit(sessionId, 'step-complete', {
+          step: completedSteps,
+          totalSteps: prioritized.length,
+          agent: worker.name,
+          metrics: getSessionMetrics(sessionId)
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        registerSessionError(sessionId, `${worker.name}: ${message}`);
+        recordJobResult(worker.name, false);
+        sseHub.emit(sessionId, 'error', {
+          agent: worker.name,
+          message,
+          depth
+        });
+        sseHub.emit(sessionId, 'step-failed', {
+          step: completedSteps + 1,
+          totalSteps: prioritized.length,
+          agent: worker.name
+        });
+      }
+    }
+
+    const summary = await summarize(query, outputs);
+    const finalMetrics = getSessionMetrics(sessionId);
+    completeSession(sessionId, summary);
+    sseHub.emit(sessionId, 'complete', {
+      summary,
+      metrics: finalMetrics,
+      partial: Boolean(getSessionMetrics(sessionId).transactionCount < prioritized.length)
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateSessionStatus(sessionId, { complete: true, summary: `Execution failed: ${message}` });
+    sseHub.emit(sessionId, 'error', { message });
+  }
+}
+
+async function createPlan(query: string, agents: AgentCatalogItem[]): Promise<{ explanation: string; steps: ManagerStep[] }> {
+  if (!claude) {
+    return localPlanner(query, agents);
+  }
+
+  try {
+    const completion = await claude.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'user',
+          content: `Query: ${query}\nAgents: ${JSON.stringify(agents)}\nReturn strict JSON {"explanation":"...","steps":[{"agentName":"PriceFeed|NewsDigest|Summarizer|SentimentAI|MathSolver|DeepResearch","reason":"...","input":"..."}]}`
+        }
+      ]
+    });
+
+    const textParts = completion.content.filter((item) => item.type === 'text');
+    const raw = textParts.map((item) => item.text).join('\n').replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(raw) as { explanation: string; steps: ManagerStep[] };
+    if (!Array.isArray(parsed.steps) || parsed.steps.length === 0) {
+      return localPlanner(query, agents);
+    }
+    return parsed;
+  } catch {
+    return localPlanner(query, agents);
+  }
+}
+
+function localPlanner(query: string, agents: AgentCatalogItem[]): { explanation: string; steps: ManagerStep[] } {
+  const lower = query.toLowerCase();
+  const steps: ManagerStep[] = [];
+
+  const addStep = (agentName: AgentName, reason: string, input = query) => {
+    if (!agents.find((a) => a.name === agentName)) return;
+    if (steps.find((s) => s.agentName === agentName)) return;
+    steps.push({ agentName, reason, input, depth: agentName === 'DeepResearch' ? 1 : 0 });
+  };
+
+  if (lower.includes('research')) addStep('DeepResearch', 'Complex query requires recursive research');
+  if (lower.includes('news') || lower.includes('headline')) addStep('NewsDigest', 'News context requested');
+  if (lower.includes('sentiment')) addStep('SentimentAI', 'Sentiment analysis requested');
+  if (lower.includes('price') || lower.includes('xlm') || lower.includes('btc') || lower.includes('eth')) {
+    addStep('PriceFeed', 'Price lookup requested');
+  }
+  if (/[0-9]+\s*[+\-*/]/.test(lower)) addStep('MathSolver', 'Math expression detected');
+
+  addStep('Summarizer', 'Final summary generation');
+
+  return {
+    explanation: 'Rule-based fallback planner selected workers by query intent and price efficiency.',
+    steps
+  };
+}
+
+function prioritizeSteps(steps: ManagerStep[], agents: AgentCatalogItem[]): ManagerStep[] {
+  const score = (step: ManagerStep): number => {
+    const agent = agents.find((item) => item.name === step.agentName);
+    if (!agent) return 0;
+    const reputationWeight = agent.reputation / 10000;
+    const totalJobs = agent.jobsCompleted + agent.jobsFailed;
+    const reliabilityWeight = totalJobs > 0 ? agent.jobsCompleted / totalJobs : 0.5;
+    const costWeight = Math.min(1, 1 / Math.max(agent.price * 1000, 1));
+    return Number((reputationWeight * 0.45 + reliabilityWeight * 0.35 + costWeight * 0.2).toFixed(6));
+  };
+
+  const nonSummary = steps.filter((step) => step.agentName !== 'Summarizer').sort((a, b) => score(b) - score(a));
+  const summary = steps.filter((step) => step.agentName === 'Summarizer');
+  return [...nonSummary, ...summary];
+}
+
+function normalizePlanSteps(steps: ManagerStep[], agents: AgentCatalogItem[], query: string): ManagerStep[] {
+  const seen = new Set<AgentName>();
+  const normalized: ManagerStep[] = [];
+
+  for (const step of steps) {
+    if (!agents.some((item) => item.name === step.agentName)) continue;
+    if (seen.has(step.agentName)) continue;
+    seen.add(step.agentName);
+    normalized.push({
+      agentName: step.agentName,
+      reason: step.reason,
+      input: step.input || query,
+      depth: step.agentName === 'DeepResearch' ? 1 : 0
+    });
+  }
+
+  if (!seen.has('Summarizer') && agents.some((item) => item.name === 'Summarizer')) {
+    normalized.push({
+      agentName: 'Summarizer',
+      reason: 'Summarize all worker outputs into a final answer',
+      input: query,
+      depth: 0
+    });
+  }
+
+  return normalized;
+}
+
+function extractRecursiveTransactions(payload: unknown): RecursiveSubTransaction[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const maybeData = (payload as Record<string, unknown>).subTransactions;
+  if (!Array.isArray(maybeData)) return [];
+
+  const normalized: RecursiveSubTransaction[] = [];
+  for (const item of maybeData) {
+    if (!item || typeof item !== 'object') continue;
+    const objectItem = item as Record<string, unknown>;
+    if (typeof objectItem.agent !== 'string' || typeof objectItem.txHash !== 'string') continue;
+    const pricePaid = Number(objectItem.pricePaid ?? 0);
+    if (!Number.isFinite(pricePaid)) continue;
+
+    normalized.push({
+      agent: objectItem.agent,
+      txHash: objectItem.txHash,
+      pricePaid,
+      from: typeof objectItem.from === 'string' ? objectItem.from : undefined,
+      depth: Number(objectItem.depth ?? NaN),
+      fallbackUsed: Boolean(objectItem.fallbackUsed),
+      attempts: Number(objectItem.attempts ?? 1)
+    });
+  }
+
+  return normalized;
+}
+
+async function summarize(query: string, results: Array<{ agent: string; result: unknown }>): Promise<string> {
+  if (!claude) {
+    return [`Query: ${query}`, ...results.map((item) => `${item.agent}: ${JSON.stringify(item.result)}`)].join('\n');
+  }
+
+  try {
+    const completion = await claude.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'user',
+          content: `Query: ${query}\nResults: ${JSON.stringify(results)}\nProvide concise final answer.`
+        }
+      ]
+    });
+    const textParts = completion.content.filter((item) => item.type === 'text');
+    return textParts.map((item) => item.text).join('\n').trim();
+  } catch {
+    return [`Query: ${query}`, ...results.map((item) => `${item.agent}: ${JSON.stringify(item.result)}`)].join('\n');
+  }
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/sse.ts
+================================================
+import type { Response } from 'express';
+
+interface SSEClient {
+  id: string;
+  response: Response;
+}
+
+class SSEHub {
+  private clients = new Map<string, SSEClient>();
+
+  addClient(id: string, response: Response): void {
+    response.setHeader('Content-Type', 'text/event-stream');
+    response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('Connection', 'keep-alive');
+    response.flushHeaders();
+    response.write(`data: ${JSON.stringify({ type: 'connected', sessionId: id })}\n\n`);
+    this.clients.set(id, { id, response });
+  }
+
+  emit(id: string, type: string, data: Record<string, unknown>): void {
+    const client = this.clients.get(id);
+    if (!client) return;
+    const payload = JSON.stringify({ type, ...data, at: new Date().toISOString() });
+    client.response.write(`data: ${payload}\n\n`);
+  }
+
+  removeClient(id: string): void {
+    const client = this.clients.get(id);
+    if (!client) return;
+    client.response.end();
+    this.clients.delete(id);
+  }
+}
+
+export const sseHub = new SSEHub();
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/agents/index.ts
+================================================
+import { Router } from 'express';
+import priceRouter from './price.js';
+import newsRouter from './news.js';
+import summarizeRouter from './summarize.js';
+import sentimentRouter from './sentiment.js';
+import mathRouter from './math.js';
+import researchRouter from './research.js';
+
+const router = Router();
+
+router.use('/price', priceRouter);
+router.use('/news', newsRouter);
+router.use('/summarize', summarizeRouter);
+router.use('/sentiment', sentimentRouter);
+router.use('/math', mathRouter);
+router.use('/research', researchRouter);
+
+export default router;
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/agents/math.ts
+================================================
+import { Router } from 'express';
+import { createPaywall } from '../x402/middleware.js';
+
+const router = Router();
+
+router.post('/', createPaywall(0.002, 'MathSolver'), async (req, res) => {
+  const raw = String(req.body?.input ?? '0');
+  const sanitized = raw.replace(/[^\d+\-*/().\s]/g, '');
+  let result: number | null = null;
+  let error: string | null = null;
+
+  try {
+    const fn = new Function(`return (${sanitized});`);
+    const evaluated = Number(fn());
+    result = Number.isFinite(evaluated) ? evaluated : null;
+    if (result === null) error = 'Expression did not evaluate to a finite number';
+  } catch {
+    error = 'Invalid expression';
+  }
+
+  res.json({
+    agent: 'MathSolver',
+    pricePaid: 0.002,
+    data: {
+      expression: raw,
+      result,
+      error
+    },
+    txHash: fakeTxHash('math')
+  });
+});
+
+export default router;
+
+function fakeTxHash(prefix: string): string {
+  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/agents/news.ts
+================================================
+import { Router } from 'express';
+import { createPaywall } from '../x402/middleware.js';
+
+const router = Router();
+
+router.post('/', createPaywall(0.002, 'NewsDigest'), async (req, res) => {
+  const topic = String(req.body?.input ?? 'AI market updates');
+  const headlines = [
+    `Market update on ${topic}: liquidity remains stable`,
+    `${topic}: institutional participation increasing`,
+    `${topic}: short-term volatility remains elevated`
+  ];
+
+  res.json({
+    agent: 'NewsDigest',
+    pricePaid: 0.002,
+    data: {
+      topic,
+      headlines
+    },
+    txHash: fakeTxHash('news')
+  });
+});
+
+export default router;
+
+function fakeTxHash(prefix: string): string {
+  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/agents/price.ts
+================================================
+import { Router } from 'express';
+import { createPaywall } from '../x402/middleware.js';
+
+const router = Router();
+
+router.post('/', createPaywall(0.001, 'PriceFeed'), async (req, res) => {
+  const input = String(req.body?.input ?? 'XLM BTC ETH');
+  const assets = input.toUpperCase();
+  const prices: Record<string, number> = {
+    XLM: 0.124,
+    BTC: 67100,
+    ETH: 3320,
+    USDC: 1
+  };
+
+  const filtered = Object.fromEntries(Object.entries(prices).filter(([symbol]) => assets.includes(symbol)));
+
+  res.json({
+    agent: 'PriceFeed',
+    pricePaid: 0.001,
+    data: Object.keys(filtered).length > 0 ? filtered : prices,
+    txHash: fakeTxHash('price')
+  });
+});
+
+export default router;
+
+function fakeTxHash(prefix: string): string {
+  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/agents/research.ts
+================================================
+import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
+import { env } from '../config.js';
+import { createPaywall } from '../x402/middleware.js';
+import { x402FetchJson } from '../x402/client.js';
+
+const router = Router();
+const MAX_DEPTH = 2;
+
+router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
+  const input = String(req.body?.input ?? 'research topic');
+  const depth = Number(req.body?.depth ?? 0);
+  const sessionId = String(req.header('x-session-id') ?? randomUUID());
+  if (depth >= MAX_DEPTH) {
+    res.json({
+      agent: 'DeepResearch',
+      pricePaid: 0.01,
+      data: {
+        topic: input,
+        depth,
+        maxDepth: MAX_DEPTH,
+        agentsUsed: [],
+        totalCost: 0.01,
+        result: {
+          summary: 'Depth limit reached for recursive research execution.'
+        }
+      },
+      txHash: fakeTxHash('res')
+    });
+    return;
+  }
+
+  const plan = buildSubAgentPlan(input);
+  const settled = await Promise.allSettled(
+    plan.map(async (entry) => {
+      const response = await x402FetchJson<{
+        data?: unknown;
+        pricePaid?: number;
+        txHash?: string;
+      }>(
+        sessionId,
+        `${env.BACKEND_BASE_URL}/agents/${entry.endpoint}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-id': sessionId,
+            'x-parent-agent': 'DeepResearch'
+          },
+          body: JSON.stringify({ input, depth: depth + 1 })
+        },
+        {
+          retries: 2,
+          timeoutMs: 8000,
+          agentName: entry.agent,
+          fallbackFactory: (reason) => ({
+            data: {
+              fallback: true,
+              reason
+            },
+            pricePaid: 0,
+            txHash: `fallback-${entry.endpoint}-${Date.now().toString(16)}`
+          })
+        }
+      );
+      const payload = response.data;
+      return {
+        agent: entry.agent,
+        endpoint: entry.endpoint,
+        data: payload.data,
+        pricePaid: Number(payload.pricePaid ?? entry.price),
+        txHash: String(payload.txHash ?? fakeTxHash(entry.endpoint)),
+        fallbackUsed: response.fallbackUsed,
+        attempts: response.attempts
+      };
+    })
+  );
+
+  const successful = settled
+    .filter(
+      (
+        item
+      ): item is PromiseFulfilledResult<{
+        agent: string;
+        endpoint: string;
+        data: unknown;
+        pricePaid: number;
+        txHash: string;
+        fallbackUsed: boolean;
+        attempts: number;
+      }> => item.status === 'fulfilled'
+    )
+    .map((item) => item.value);
+  const failed = settled
+    .filter((item): item is PromiseRejectedResult => item.status === 'rejected')
+    .map((item) => String(item.reason));
+
+  const subAgentCost = successful.reduce((sum, item) => sum + item.pricePaid, 0);
+  const aggregated = Object.fromEntries(successful.map((item) => [item.agent, item.data]));
+
+  res.json({
+    agent: 'DeepResearch',
+    pricePaid: 0.01,
+    data: {
+      topic: input,
+      depth,
+      maxDepth: MAX_DEPTH,
+      agentsUsed: successful.map((item) => item.agent),
+      subTransactions: successful.map((item) => ({
+        agent: item.agent,
+        txHash: item.txHash,
+        pricePaid: item.pricePaid,
+        from: 'DeepResearch',
+        depth: depth + 1,
+        fallbackUsed: item.fallbackUsed,
+        attempts: item.attempts
+      })),
+      totalCost: Number((0.01 + subAgentCost).toFixed(6)),
+      failed,
+      result: aggregated
+    },
+    txHash: fakeTxHash('res')
+  });
+});
+
+export default router;
+
+function fakeTxHash(prefix: string): string {
+  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function buildSubAgentPlan(input: string): Array<{ agent: string; endpoint: string; price: number }> {
+  const lower = input.toLowerCase();
+  const plan: Array<{ agent: string; endpoint: string; price: number }> = [
+    { agent: 'Summarizer', endpoint: 'summarize', price: 0.001 }
+  ];
+
+  if (lower.includes('sentiment') || lower.includes('risk') || lower.includes('opinion')) {
+    plan.push({ agent: 'SentimentAI', endpoint: 'sentiment', price: 0.001 });
+  }
+
+  if (lower.includes('news') || lower.includes('headline')) {
+    plan.push({ agent: 'NewsDigest', endpoint: 'news', price: 0.002 });
+  }
+
+  if (lower.includes('price') || lower.includes('xlm') || lower.includes('btc') || lower.includes('eth')) {
+    plan.push({ agent: 'PriceFeed', endpoint: 'price', price: 0.001 });
+  }
+
+  if (/[0-9]+\s*[+\-*/]/.test(lower)) {
+    plan.push({ agent: 'MathSolver', endpoint: 'math', price: 0.002 });
+  }
+
+  return plan;
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/agents/sentiment.ts
+================================================
+import { Router } from 'express';
+import { createPaywall } from '../x402/middleware.js';
+
+const router = Router();
+
+router.post('/', createPaywall(0.001, 'SentimentAI'), async (req, res) => {
+  const input = String(req.body?.input ?? 'neutral');
+  const lower = input.toLowerCase();
+  const score = lower.includes('risk') || lower.includes('loss') ? -0.35 : lower.includes('growth') || lower.includes('gain') ? 0.42 : 0.05;
+  const label = score > 0.2 ? 'positive' : score < -0.2 ? 'negative' : 'neutral';
+
+  res.json({
+    agent: 'SentimentAI',
+    pricePaid: 0.001,
+    data: {
+      label,
+      score
+    },
+    txHash: fakeTxHash('sent')
+  });
+});
+
+export default router;
+
+function fakeTxHash(prefix: string): string {
+  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/agents/summarize.ts
+================================================
+import { Router } from 'express';
+import { createPaywall } from '../x402/middleware.js';
+
+const router = Router();
+
+router.post('/', createPaywall(0.001, 'Summarizer'), async (req, res) => {
+  const input = String(req.body?.input ?? 'No content provided');
+  const sentences = input
+    .split(/[.!?]/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  res.json({
+    agent: 'Summarizer',
+    pricePaid: 0.001,
+    data: {
+      summary: sentences.join('. ') || input.slice(0, 160)
+    },
+    txHash: fakeTxHash('sum')
+  });
+});
+
+export default router;
+
+function fakeTxHash(prefix: string): string {
+  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/lib/store.ts
+================================================
+import { randomUUID } from 'node:crypto';
+import { AgentCatalogItem, AgentUsageMetric, PaymentRecord, ProtocolTraceItem, SessionMetrics, SessionStatus } from './types.js';
+
+const transactions: PaymentRecord[] = [];
+const sessionStatuses = new Map<string, SessionStatus>();
+const protocolTraces = new Map<string, ProtocolTraceItem[]>();
+const sessionTransactions = new Map<string, PaymentRecord[]>();
+const sessionMetrics = new Map<string, SessionMetrics>();
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function buildExplorerUrl(txHash: string): string {
+  return `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+}
+
+export function addTransaction(item: Omit<PaymentRecord, 'id' | 'timestamp' | 'explorerUrl'>): PaymentRecord {
+  const record: PaymentRecord = {
+    id: randomUUID(),
+    timestamp: nowIso(),
+    explorerUrl: buildExplorerUrl(item.txHash),
+    ...item
+  };
+  transactions.unshift(record);
+
+  if (record.sessionId) {
+    const bySession = sessionTransactions.get(record.sessionId) ?? [];
+    bySession.unshift(record);
+    sessionTransactions.set(record.sessionId, bySession);
+
+    const existingMetrics = sessionMetrics.get(record.sessionId) ?? {
+      sessionId: record.sessionId,
+      totalSpend: 0,
+      transactionCount: 0,
+      agentUsage: {}
+    };
+
+    const existingUsage = existingMetrics.agentUsage[record.to] ?? {
+      agentName: record.to,
+      count: 0,
+      totalSpent: 0,
+      lastUsedAt: record.timestamp
+    };
+
+    const updatedUsage: AgentUsageMetric = {
+      ...existingUsage,
+      count: existingUsage.count + 1,
+      totalSpent: Number((existingUsage.totalSpent + record.amount).toFixed(6)),
+      lastUsedAt: record.timestamp
+    };
+
+    sessionMetrics.set(record.sessionId, {
+      ...existingMetrics,
+      totalSpend: Number((existingMetrics.totalSpend + record.amount).toFixed(6)),
+      transactionCount: existingMetrics.transactionCount + 1,
+      agentUsage: {
+        ...existingMetrics.agentUsage,
+        [record.to]: updatedUsage
+      }
+    });
+  }
+
+  return record;
+}
+
+export function listTransactions(limit = 10, sessionId?: string): PaymentRecord[] {
+  const source = sessionId ? (sessionTransactions.get(sessionId) ?? []) : transactions;
+  return source.slice(0, Math.max(1, limit));
+}
+
+export function createSessionStatus(sessionId: string, query: string): SessionStatus {
+  const now = nowIso();
+  const session: SessionStatus = {
+    sessionId,
+    query,
+    complete: false,
+    summary: '',
+    agentsHired: [],
+    totalCost: 0,
+    txHashes: [],
+    startedAt: now,
+    updatedAt: now,
+    errors: [],
+    completedSteps: 0,
+    totalSteps: 0,
+    partial: false
+  };
+  sessionStatuses.set(sessionId, session);
+  protocolTraces.set(sessionId, []);
+  sessionTransactions.set(sessionId, []);
+  sessionMetrics.set(sessionId, {
+    sessionId,
+    totalSpend: 0,
+    transactionCount: 0,
+    agentUsage: {}
+  });
+  return session;
+}
+
+export function updateSessionStatus(sessionId: string, patch: Partial<SessionStatus>): SessionStatus | undefined {
+  const current = sessionStatuses.get(sessionId);
+  if (!current) return undefined;
+  const next: SessionStatus = {
+    ...current,
+    ...patch,
+    updatedAt: nowIso()
+  };
+  sessionStatuses.set(sessionId, next);
+  return next;
+}
+
+export function getSessionStatus(sessionId: string): SessionStatus | undefined {
+  return sessionStatuses.get(sessionId);
+}
+
+export function appendProtocolTrace(sessionId: string, trace: ProtocolTraceItem): void {
+  const list = protocolTraces.get(sessionId) ?? [];
+  list.push(trace);
+  protocolTraces.set(sessionId, list);
+}
+
+export function getProtocolTrace(sessionId: string): ProtocolTraceItem[] {
+  return protocolTraces.get(sessionId) ?? [];
+}
+
+export function getSessionMetrics(sessionId: string): SessionMetrics {
+  return (
+    sessionMetrics.get(sessionId) ?? {
+      sessionId,
+      totalSpend: 0,
+      transactionCount: 0,
+      agentUsage: {}
+    }
+  );
+}
+
+export function getSessionTransactions(sessionId: string, limit = 50): PaymentRecord[] {
+  return (sessionTransactions.get(sessionId) ?? []).slice(0, Math.max(1, limit));
+}
+
+export function registerPaymentToSession(sessionId: string, txHash: string, amount: number, agentName: string): void {
+  const current = sessionStatuses.get(sessionId);
+  if (!current) return;
+  const hired = current.agentsHired.includes(agentName) ? current.agentsHired : [...current.agentsHired, agentName];
+  updateSessionStatus(sessionId, {
+    agentsHired: hired,
+    totalCost: Number((current.totalCost + amount).toFixed(6)),
+    txHashes: [...current.txHashes, txHash]
+  });
+}
+
+export function registerSessionError(sessionId: string, message: string): void {
+  const current = sessionStatuses.get(sessionId);
+  if (!current) return;
+  updateSessionStatus(sessionId, {
+    errors: [...current.errors, message]
+  });
+}
+
+export function completeSession(sessionId: string, summary: string): void {
+  const status = sessionStatuses.get(sessionId);
+  updateSessionStatus(sessionId, {
+    complete: true,
+    summary,
+    partial: status ? status.errors.length > 0 : false
+  });
+}
+
+export const staticCatalog: AgentCatalogItem[] = [
+  {
+    name: 'PriceFeed',
+    endpoint: 'price',
+    price: 0.001,
+    reputation: 8200,
+    capabilities: ['price-check', 'asset-quote'],
+    recursive: false,
+    jobsCompleted: 42,
+    jobsFailed: 2
+  },
+  {
+    name: 'NewsDigest',
+    endpoint: 'news',
+    price: 0.002,
+    reputation: 7900,
+    capabilities: ['headline-summary', 'topic-digest'],
+    recursive: false,
+    jobsCompleted: 31,
+    jobsFailed: 4
+  },
+  {
+    name: 'Summarizer',
+    endpoint: 'summarize',
+    price: 0.001,
+    reputation: 8600,
+    capabilities: ['text-summary', 'key-points'],
+    recursive: false,
+    jobsCompleted: 55,
+    jobsFailed: 1
+  },
+  {
+    name: 'SentimentAI',
+    endpoint: 'sentiment',
+    price: 0.001,
+    reputation: 8100,
+    capabilities: ['sentiment', 'risk-tone'],
+    recursive: false,
+    jobsCompleted: 48,
+    jobsFailed: 3
+  },
+  {
+    name: 'MathSolver',
+    endpoint: 'math',
+    price: 0.002,
+    reputation: 9000,
+    capabilities: ['arithmetic', 'equation-solving'],
+    recursive: false,
+    jobsCompleted: 60,
+    jobsFailed: 1
+  },
+  {
+    name: 'DeepResearch',
+    endpoint: 'research',
+    price: 0.01,
+    reputation: 7600,
+    capabilities: ['recursive-research', 'multi-source-analysis'],
+    recursive: true,
+    jobsCompleted: 20,
+    jobsFailed: 6
+  }
+];
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/lib/types.ts
+================================================
+export type AgentName =
+  | 'PriceFeed'
+  | 'NewsDigest'
+  | 'Summarizer'
+  | 'SentimentAI'
+  | 'MathSolver'
+  | 'DeepResearch';
+
+export interface AgentCatalogItem {
+  name: AgentName;
+  endpoint: string;
+  price: number;
+  reputation: number;
+  capabilities: string[];
+  recursive: boolean;
+  jobsCompleted: number;
+  jobsFailed: number;
+}
+
+export interface PaymentRecord {
+  id: string;
+  timestamp: string;
+  from: string;
+  to: string;
+  amount: number;
+  txHash: string;
+  explorerUrl: string;
+  sessionId?: string;
+  depth: number;
+}
+
+export interface AgentUsageMetric {
+  agentName: string;
+  count: number;
+  totalSpent: number;
+  lastUsedAt: string;
+}
+
+export interface SessionMetrics {
+  sessionId: string;
+  totalSpend: number;
+  transactionCount: number;
+  agentUsage: Record<string, AgentUsageMetric>;
+}
+
+export interface SessionStatus {
+  sessionId: string;
+  query: string;
+  complete: boolean;
+  summary: string;
+  agentsHired: string[];
+  totalCost: number;
+  txHashes: string[];
+  startedAt: string;
+  updatedAt: string;
+  errors: string[];
+  completedSteps: number;
+  totalSteps: number;
+  partial: boolean;
+}
+
+export interface ProtocolTraceItem {
+  timestamp: string;
+  step: string;
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: unknown;
+  };
+  response?: {
+    status: number;
+    headers: Record<string, string>;
+    body?: unknown;
+  };
+}
+
+export interface ApiErrorPayload {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+export interface ApiSuccess<T> {
+  ok: true;
+  data: T;
+}
+
+export interface ApiError {
+  ok: false;
+  error: ApiErrorPayload;
+}
+
+export type ApiResponse<T> = ApiSuccess<T> | ApiError;
+
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/stellar/contract.ts
+================================================
+import { AgentCatalogItem, AgentName } from '../lib/types.js';
+import { staticCatalog } from '../lib/store.js';
+
+const agentState = new Map<AgentName, AgentCatalogItem>(
+  staticCatalog.map((item) => [item.name, { ...item }])
+);
+
+export function getAgentCatalog(): AgentCatalogItem[] {
+  return Array.from(agentState.values()).map((item) => ({ ...item }));
+}
+
+export function getAgentByName(name: AgentName): AgentCatalogItem | undefined {
+  const found = agentState.get(name);
+  return found ? { ...found } : undefined;
+}
+
+export function getAgentByEndpoint(endpoint: string): AgentCatalogItem | undefined {
+  const found = Array.from(agentState.values()).find((agent) => agent.endpoint === endpoint);
+  return found ? { ...found } : undefined;
+}
+
+export function recordJobResult(name: AgentName, success: boolean): AgentCatalogItem | undefined {
+  const current = agentState.get(name);
+  if (!current) return undefined;
+
+  const next = { ...current };
+  if (success) {
+    next.jobsCompleted += 1;
+    next.reputation = Math.min(10000, next.reputation + 50);
+  } else {
+    next.jobsFailed += 1;
+    next.reputation = Math.max(0, next.reputation - 100);
+  }
+
+  const multiplier = next.reputation >= 8500 ? 1.1 : next.reputation < 6000 ? 0.9 : 1;
+  next.price = Number((current.price * multiplier).toFixed(6));
+  agentState.set(name, next);
+  return { ...next };
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/stellar/wallet.ts
+================================================
+import { randomUUID } from 'node:crypto';
+import { Keypair } from '@stellar/stellar-sdk';
+import { env } from '../config.js';
+
+interface WalletBalance {
+  publicKey: string;
+  xlm: string;
+  usdc: string;
+  network: string;
+  updatedAt: string;
+}
+
+interface WalletBalanceCache {
+  value: WalletBalance;
+  expiresAt: number;
+}
+
+export interface CreatedWallet {
+  walletId: string;
+  name: string;
+  publicKey: string;
+  secretKey: string;
+  xlmFunded: string;
+  network: string;
+  createdAt: string;
+}
+
+const managerPublic = env.MANAGER_SECRET_KEY ? Keypair.fromSecret(env.MANAGER_SECRET_KEY).publicKey() : 'UNCONFIGURED_MANAGER';
+const BALANCE_TTL_MS = 20_000;
+let cachedBalance: WalletBalanceCache | null = null;
+
+export function getManagerWalletBalance(): WalletBalance {
+  const now = Date.now();
+  if (cachedBalance && cachedBalance.expiresAt > now) {
+    return cachedBalance.value;
+  }
+
+  const value: WalletBalance = {
+    publicKey: managerPublic,
+    xlm: '1000.0000000',
+    usdc: '250.0000000',
+    network: env.STELLAR_NETWORK,
+    updatedAt: new Date(now).toISOString()
+  };
+
+  cachedBalance = {
+    value,
+    expiresAt: now + BALANCE_TTL_MS
+  };
+
+  return value;
+}
+
+export function createSponsoredWallet(agentName: string): CreatedWallet {
+  const keypair = Keypair.random();
+  return {
+    walletId: randomUUID(),
+    name: agentName,
+    publicKey: keypair.publicKey(),
+    secretKey: keypair.secret(),
+    xlmFunded: '1.5',
+    network: env.STELLAR_NETWORK,
+    createdAt: new Date().toISOString()
+  };
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/x402/client.ts
+================================================
+import { randomUUID } from 'node:crypto';
+import { decodePaymentResponseHeader, wrapFetchWithPaymentFromConfig } from '@x402/fetch';
+import { createEd25519Signer, getUsdcAddress } from '@x402/stellar';
+import { ExactStellarScheme as ExactStellarClientScheme } from '@x402/stellar/exact/client';
+import { appendProtocolTrace } from '../lib/store.js';
+import { env, getStellarCaip2Network, isX402RealMode, isX402RealOnly } from '../config.js';
+
+export interface X402FetchResult<T = unknown> {
+  data: T;
+  paymentAttempted: boolean;
+  protocolTraceStepIds: string[];
+  fallbackUsed: boolean;
+  attempts: number;
+}
+
+interface X402FetchOptions<T> {
+  retries?: number;
+  timeoutMs?: number;
+  fallbackFactory?: (errorMessage: string) => T;
+  agentName?: string;
+}
+
+export async function x402FetchJson<T = unknown>(
+  sessionId: string,
+  url: string,
+  init: RequestInit,
+  options: X402FetchOptions<T> = {}
+): Promise<X402FetchResult<T>> {
+  const retries = options.retries ?? 2;
+  const timeoutMs = options.timeoutMs ?? 8000;
+  const traceIds: string[] = [];
+  const normalizedHeaders = normalizeHeaders(init.headers);
+
+  let attempt = 0;
+  let lastError = 'Unknown x402 error';
+
+  const fetchImpl = getFetchWithMode();
+
+  while (attempt <= retries) {
+    attempt += 1;
+    const reqTraceId = randomUUID();
+    traceIds.push(reqTraceId);
+    appendProtocolTrace(sessionId, {
+      timestamp: new Date().toISOString(),
+      step: `request:${reqTraceId}`,
+      request: {
+        method: init.method ?? 'GET',
+        url,
+        headers: normalizedHeaders,
+        body: parseBody(init.body)
+      }
+    });
+
+    try {
+      const first = await fetchWithTimeout(fetchImpl, url, init, timeoutMs);
+
+      if (first.status !== 402) {
+        if (!first.ok) {
+          throw new Error(`Call failed with status ${first.status}`);
+        }
+        const data = (await first.json()) as T;
+        appendProtocolTrace(sessionId, {
+          timestamp: new Date().toISOString(),
+          step: `response:${reqTraceId}`,
+          request: {
+            method: init.method ?? 'GET',
+            url,
+            headers: normalizedHeaders,
+            body: parseBody(init.body)
+          },
+          response: {
+            status: first.status,
+            headers: headersToObject(first.headers),
+            body: data
+          }
+        });
+        return {
+          data,
+          paymentAttempted: false,
+          protocolTraceStepIds: traceIds,
+          fallbackUsed: false,
+          attempts: attempt
+        };
+      }
+
+      const data = (await first.json()) as T;
+      const paymentResponseHeader = first.headers.get('PAYMENT-RESPONSE') ?? first.headers.get('X-PAYMENT-RESPONSE');
+      const settlementTx = paymentResponseHeader ? extractTransactionFromHeader(paymentResponseHeader) : null;
+      const enrichedData = mergeTxHash(data, settlementTx) as T;
+
+      appendProtocolTrace(sessionId, {
+        timestamp: new Date().toISOString(),
+        step: `response:${reqTraceId}`,
+        request: {
+          method: init.method ?? 'GET',
+          url,
+          headers: normalizedHeaders,
+          body: parseBody(init.body)
+        },
+        response: {
+          status: first.status,
+          headers: headersToObject(first.headers),
+          body: enrichedData
+        }
+      });
+
+      const txHash = settlementTx ?? extractField(enrichedData, 'txHash');
+      const paymentAttempted = Boolean(paymentResponseHeader || first.status !== 402);
+      console.log(
+        `[x402] mode=${isX402RealMode ? 'real' : 'mock'} agent=${options.agentName ?? 'unknown'} txHash=${txHash || 'n/a'} attempt=${attempt}`
+      );
+
+      return {
+        data: enrichedData,
+        paymentAttempted,
+        protocolTraceStepIds: traceIds,
+        fallbackUsed: false,
+        attempts: attempt
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt > retries) {
+        break;
+      }
+    }
+  }
+
+  if (options.fallbackFactory && !(isX402RealMode && isX402RealOnly)) {
+    const fallbackData = options.fallbackFactory(lastError);
+    console.warn(`[x402] fallback used agent=${options.agentName ?? 'unknown'} reason=${lastError}`);
+    return {
+      data: fallbackData,
+      paymentAttempted: true,
+      protocolTraceStepIds: traceIds,
+      fallbackUsed: true,
+      attempts: attempt
+    };
+  }
+
+  throw new Error(`x402 call failed after retries: ${lastError}`);
+}
+
+function normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) return {};
+  if (headers instanceof Headers) return headersToObject(headers);
+  if (Array.isArray(headers)) return Object.fromEntries(headers);
+  return headers;
+}
+
+function headersToObject(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    out[key] = value;
+  });
+  return out;
+}
+
+function parseBody(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== 'string') return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+function fetchWithTimeout(fetchImpl: typeof fetch, url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return fetchImpl(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeout));
+}
+
+function extractField<T>(payload: T, key: string): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const candidate = (payload as Record<string, unknown>)[key];
+  return typeof candidate === 'string' ? candidate : null;
+}
+
+let paidFetch: ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null = null;
+
+function getFetchWithMode(): typeof fetch {
+  if (!isX402RealMode) {
+    return fetch;
+  }
+
+  if (!env.MANAGER_SECRET_KEY) {
+    throw new Error('MANAGER_SECRET_KEY is required for real x402 settlement mode');
+  }
+
+  if (!paidFetch) {
+    const signer = createEd25519Signer(env.MANAGER_SECRET_KEY, getStellarCaip2Network());
+    paidFetch = wrapFetchWithPaymentFromConfig(fetch, {
+      schemes: [
+        {
+          network: getStellarCaip2Network(),
+          client: new ExactStellarClientScheme(signer)
+        }
+      ],
+      paymentRequirementsSelector: (_, accepts) => {
+        const stellarOnly = accepts.filter((entry) => entry.network.startsWith('stellar:'));
+        return stellarOnly[0] ?? accepts[0];
+      }
+    });
+  }
+
+  return paidFetch as typeof fetch;
+}
+
+function extractTransactionFromHeader(header: string): string | null {
+  try {
+    const response = decodePaymentResponseHeader(header) as Record<string, unknown>;
+    const transaction = response.transaction;
+    return typeof transaction === 'string' ? transaction : null;
+  } catch {
+    return null;
+  }
+}
+
+function mergeTxHash<T>(payload: T, txHash: string | null): T {
+  if (!txHash || !payload || typeof payload !== 'object') return payload;
+  if (typeof (payload as Record<string, unknown>).txHash === 'string') return payload;
+  return {
+    ...(payload as Record<string, unknown>),
+    txHash,
+    paymentNetwork: getStellarCaip2Network(),
+    settlementAsset: env.X402_USDC_ASSET_ADDRESS || getUsdcAddress(getStellarCaip2Network())
+  } as T;
+}
+
+
+
+================================================
+FILE: synergi-stellar/backend/src/x402/middleware.ts
+================================================
+import type { Request, Response, NextFunction } from 'express';
+import { Keypair } from '@stellar/stellar-sdk';
+import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http';
+import { HTTPFacilitatorClient, x402ResourceServer } from '@x402/core/server';
+import { ExactStellarScheme as ExactStellarServerScheme } from '@x402/stellar/exact/server';
+import { env, getStellarCaip2Network, isX402Enforced, isX402RealMode, isX402RealOnly } from '../config.js';
+
+const facilitatorClient = new HTTPFacilitatorClient({ url: env.FACILITATOR_URL });
+const resourceServer = new x402ResourceServer(facilitatorClient).register('stellar:*', new ExactStellarServerScheme());
+
+let initializationPromise: Promise<void> | null = null;
+
+async function ensureResourceServerInitialized(): Promise<void> {
+  if (!initializationPromise) {
+    initializationPromise = resourceServer.initialize();
+  }
+  await initializationPromise;
+}
+
+export function createPaywall(priceUSDC: number, agentName: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (!isX402Enforced) {
+      res.setHeader('x-payment-enforced', 'false');
+      next();
+      return;
+    }
+
+    if (!isX402RealMode) {
+      handleMockPaywall(req, res, next, priceUSDC, agentName);
+      return;
+    }
+
+    try {
+      await ensureResourceServerInitialized();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isX402RealOnly) {
+        res.status(503).json({
+          ok: false,
+          error: {
+            code: 'X402_INITIALIZATION_FAILED',
+            message: `Real x402 mode initialization failed: ${message}`
+          }
+        });
+        return;
+      }
+      handleMockPaywall(req, res, next, priceUSDC, agentName);
+      return;
+    }
+
+    const recipient = resolveAgentRecipient(agentName);
+    if (!recipient) {
+      res.status(isX402RealOnly ? 500 : 402).json({
+        ok: false,
+        error: {
+          code: 'X402_AGENT_RECIPIENT_MISSING',
+          message: `Missing valid Stellar recipient address for ${agentName}`
+        }
+      });
+      return;
+    }
+
+    const requirements = await resourceServer.buildPaymentRequirements({
+      scheme: 'exact',
+      payTo: recipient,
+      price: priceUSDC,
+      network: getStellarCaip2Network(),
+      maxTimeoutSeconds: env.X402_MAX_TIMEOUT_SECONDS
+    });
+
+    const paymentHeader = req.header('PAYMENT-SIGNATURE') ?? req.header('X-PAYMENT');
+    if (!paymentHeader) {
+      const paymentRequired = await resourceServer.createPaymentRequiredResponse(
+        requirements,
+        {
+          url: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
+          description: `${agentName} endpoint`,
+          mimeType: 'application/json'
+        },
+        'Payment required before accessing this endpoint.'
+      );
+
+      res.status(402);
+      res.setHeader('x-payment-enforced', 'true');
+      res.setHeader('x-payment-required', 'true');
+      res.setHeader('PAYMENT-REQUIRED', encodePaymentRequiredHeader(paymentRequired));
+      res.setHeader('x-payment-network', getStellarCaip2Network());
+      res.setHeader('x-payment-recipient', recipient);
+      res.json({
+        ok: false,
+        error: {
+          code: 'PAYMENT_REQUIRED',
+          message: 'Payment required before accessing this endpoint.',
+          details: {
+            network: getStellarCaip2Network(),
+            recipient,
+            amount: priceUSDC,
+            scheme: 'exact'
+          }
+        }
+      });
+      return;
+    }
+
+    let payload;
+    try {
+      payload = decodePaymentSignatureHeader(paymentHeader);
+    } catch {
+      res.status(400).json({
+        ok: false,
+        error: {
+          code: 'INVALID_PAYMENT_SIGNATURE',
+          message: 'Invalid payment signature payload'
+        }
+      });
+      return;
+    }
+
+    const matchingRequirement = resourceServer.findMatchingRequirements(requirements, payload);
+    if (!matchingRequirement) {
+      res.status(402).json({
+        ok: false,
+        error: {
+          code: 'PAYMENT_REQUIREMENT_MISMATCH',
+          message: 'Submitted payment does not match endpoint payment requirements.'
+        }
+      });
+      return;
+    }
+
+    const verifyResult = await resourceServer.verifyPayment(payload, matchingRequirement);
+    if (!verifyResult.isValid) {
+      res.status(402).json({
+        ok: false,
+        error: {
+          code: verifyResult.invalidReason ?? 'PAYMENT_INVALID',
+          message: 'Payment verification failed.'
+        }
+      });
+      return;
+    }
+
+    const settleResult = await resourceServer.settlePayment(payload, matchingRequirement);
+    if (!settleResult.success) {
+      const responseStatus = isX402RealOnly ? 502 : 402;
+      res.status(responseStatus).json({
+        ok: false,
+        error: {
+          code: settleResult.errorReason ?? 'PAYMENT_SETTLEMENT_FAILED',
+          message: settleResult.errorMessage ?? 'Payment settlement failed.'
+        }
+      });
+      return;
+    }
+
+    res.setHeader('x-payment-enforced', 'true');
+    res.setHeader('PAYMENT-RESPONSE', encodePaymentResponseHeader(settleResult));
+    next();
+  };
+}
+
+function handleMockPaywall(req: Request, res: Response, next: NextFunction, priceUSDC: number, agentName: string) {
+  const paymentProof = req.header('x-payment-proof');
+  if (!paymentProof) {
+    const paymentContext = {
+      amount: Number(priceUSDC.toFixed(6)),
+      asset: 'USDC',
+      recipient: agentName,
+      network: 'stellar-testnet'
+    };
+
+    res.status(402);
+    res.setHeader('x-payment-enforced', 'true');
+    res.setHeader('x-payment-required', 'true');
+    res.setHeader('x-payment-asset', paymentContext.asset);
+    res.setHeader('x-payment-amount', paymentContext.amount.toString());
+    res.setHeader('x-payment-recipient', paymentContext.recipient);
+    res.json({
+      ok: false,
+      error: {
+        code: 'PAYMENT_REQUIRED',
+        message: 'Payment required before accessing this endpoint.',
+        details: paymentContext
+      }
+    });
+    return;
+  }
+
+  res.setHeader('x-payment-enforced', 'true');
+  next();
+}
+
+function resolveAgentRecipient(agentName: string): string | null {
+  const recipients: Record<string, string | undefined> = {
+    PriceFeed: env.AGENT_PRICE_PUBLIC_KEY,
+    NewsDigest: env.AGENT_NEWS_PUBLIC_KEY,
+    Summarizer: env.AGENT_SUMMARIZER_PUBLIC_KEY,
+    SentimentAI: env.AGENT_SENTIMENT_PUBLIC_KEY,
+    MathSolver: env.AGENT_MATH_PUBLIC_KEY,
+    DeepResearch: env.AGENT_RESEARCH_PUBLIC_KEY
+  };
+
+  const configured = recipients[agentName];
+
+  if (configured && configured.startsWith('G') && configured.length >= 56) {
+    return configured;
+  }
+
+  if (env.MANAGER_SECRET_KEY) {
+    return Keypair.fromSecret(env.MANAGER_SECRET_KEY).publicKey();
+  }
+
+  return null;
+}
+
+
+
+================================================
+FILE: synergi-stellar/contracts/agent-registry/Cargo.toml
+================================================
+[package]
+name = "agent-registry"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "22.0.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+
+
+================================================
+FILE: synergi-stellar/contracts/agent-registry/src/lib.rs
+================================================
+#![no_std]
+
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Symbol, Vec};
+
+#[derive(Clone)]
+#[contracttype]
+pub struct Agent {
+    pub name: String,
+    pub owner: Address,
+    pub endpoint: String,
+    pub price_usdc: i128,
+    pub reputation: i128,
+    pub jobs_completed: u64,
+    pub jobs_failed: u64,
+    pub recursive: bool,
+}
+
+#[contracttype]
+pub enum DataKey {
+    Agent(Symbol),
+    AgentList,
+}
+
+#[contract]
+pub struct AgentRegistry;
+
+#[contractimpl]
+impl AgentRegistry {
+    pub fn register_agent(
+        env: Env,
+        name: Symbol,
+        owner: Address,
+        endpoint: String,
+        price_usdc: i128,
+        recursive: bool,
+    ) {
+        owner.require_auth();
+
+        let key = DataKey::Agent(name.clone());
+        let exists: bool = env.storage().persistent().has(&key);
+        if exists {
+            panic!("agent already exists");
+        }
+
+        let agent = Agent {
+            name: symbol_to_string(&env, &name),
+            owner,
+            endpoint,
+            price_usdc,
+            reputation: 5000,
+            jobs_completed: 0,
+            jobs_failed: 0,
+            recursive,
+        };
+
+        env.storage().persistent().set(&key, &agent);
+
+        let mut list: Vec<Symbol> = get_agent_symbol_list(&env);
+        list.push_back(name);
+        env.storage().persistent().set(&DataKey::AgentList, &list);
+    }
+
+    pub fn get_agent(env: Env, name: Symbol) -> Option<Agent> {
+        env.storage().persistent().get(&DataKey::Agent(name))
+    }
+
+    pub fn list_agents(env: Env) -> Vec<Agent> {
+        let list: Vec<Symbol> = get_agent_symbol_list(&env);
+
+        let mut out = Vec::new(&env);
+        for name in list.iter() {
+            let key = DataKey::Agent(name.clone());
+            let maybe: Option<Agent> = env.storage().persistent().get(&key);
+            if let Some(agent) = maybe {
+                out.push_back(agent);
+            }
+        }
+        out
+    }
+
+    pub fn record_job_result(env: Env, name: Symbol, success: bool) {
+        let key = DataKey::Agent(name.clone());
+        let mut agent: Agent = env.storage().persistent().get(&key).unwrap();
+
+        if success {
+            agent.jobs_completed += 1;
+            agent.reputation = (agent.reputation + 50).min(10000);
+        } else {
+            agent.jobs_failed += 1;
+            agent.reputation = (agent.reputation - 100).max(0);
+        }
+
+        if agent.reputation >= 8500 {
+            agent.price_usdc = ((agent.price_usdc * 110) / 100).max(1);
+        } else if agent.reputation < 6000 {
+            agent.price_usdc = ((agent.price_usdc * 90) / 100).max(1);
+        }
+
+        env.storage().persistent().set(&key, &agent);
+    }
+
+    pub fn update_agent_price(env: Env, name: Symbol, owner: Address, price_usdc: i128) {
+        if price_usdc <= 0 {
+            panic!("price must be positive");
+        }
+
+        let key = DataKey::Agent(name.clone());
+        let mut agent: Agent = env.storage().persistent().get(&key).unwrap();
+        owner.require_auth();
+
+        if agent.owner != owner {
+            panic!("only owner can update price");
+        }
+
+        agent.price_usdc = price_usdc;
+        env.storage().persistent().set(&key, &agent);
+    }
+}
+
+fn get_agent_symbol_list(env: &Env) -> Vec<Symbol> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AgentList)
+        .unwrap_or(Vec::new(env))
+}
+
+fn symbol_to_string(env: &Env, symbol: &Symbol) -> String {
+    String::from_str(env, symbol.to_string().as_str())
+}
+
+
+
+================================================
+FILE: synergi-stellar/docs/architecture.md
+================================================
+# Architecture
+
+## Frontend
+
+The frontend uses Next.js App Router, Tailwind CSS, and D3.
+
+- Agent query and status cards
+- Topology graph with animated edges
+- Transaction log with depth labels
+- Protocol trace panel
+
+## Backend
+
+The backend uses Express + TypeScript.
+
+- `/api/query` starts manager execution
+- `/api/events/:sessionId` streams SSE events
+- `/api/status/:sessionId` returns state + traces
+- `/agents/*` exposes worker endpoints
+
+## Smart contract
+
+Soroban contract stores agent registry and reputation state.
+
+- `register_agent`
+- `record_job_result`
+- `list_agents`
+- `update_agent_price`
+
+
+
+================================================
+FILE: synergi-stellar/docs/frontend-style.md
+================================================
+# Frontend Style Guide
+
+## Design direction
+
+- Light mode first
+- Playful cards with soft shadows
+- Micro interactions on hover and focus
+- Strong readability for logs and traces
+
+## Motion
+
+- Subtle floating logo in header
+- Lift-on-hover for cards
+- Animated topology links for payment flow
+
+## Accessibility
+
+- Visible focus rings
+- High contrast text
+- Semantic headings and links
+
+
+
+================================================
+FILE: synergi-stellar/docs/overview.md
+================================================
+# SynergiStellar Overview
+
+SynergiStellar is a hackathon demo of an autonomous agent economy on Stellar.
+
+## Core concepts
+
+- Manager agent decomposes a user request into specialized worker tasks.
+- Worker endpoints can be x402-gated to require payment before execution.
+- Execution is streamed over SSE so the dashboard updates in real time.
+- Recursive execution allows workers to hire other workers.
+
+## Demo flow
+
+1. Submit a query in the dashboard.
+2. Manager plans and selects agents by cost and reputation.
+3. Payments and protocol events are logged.
+4. Final answer is synthesized and returned.
+
+
+
+================================================
+FILE: synergi-stellar/frontend/next-env.d.ts
+================================================
+/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+
+// NOTE: This file should not be edited
+// see https://nextjs.org/docs/app/building-your-application/configuring/typescript for more information.
+
+
+
+================================================
+FILE: synergi-stellar/frontend/next.config.mjs
+================================================
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true
+};
+
+export default nextConfig;
+
+
+
+================================================
+FILE: synergi-stellar/frontend/package.json
+================================================
+{
+  "name": "synergi-stellar-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "next": "14.2.24",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.24",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2"
+  }
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/postcss.config.js
+================================================
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {}
+  }
+};
+
+
+
+================================================
+FILE: synergi-stellar/frontend/tailwind.config.ts
+================================================
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  theme: {
+    extend: {}
+  },
+  plugins: []
+};
+
+export default config;
+
+
+
+================================================
+FILE: synergi-stellar/frontend/tsconfig.json
+================================================
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/.env.local.example
+================================================
+NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
+NEXT_PUBLIC_STELLAR_NETWORK=testnet
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/globals.css
+================================================
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-50 text-slate-800;
+  background-image:
+    radial-gradient(circle at 10% 10%, rgba(14, 165, 233, 0.16), transparent 28%),
+    radial-gradient(circle at 90% 20%, rgba(59, 130, 246, 0.1), transparent 30%),
+    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.panel {
+  @apply rounded-2xl border border-sky-100/80 bg-white/90 p-5 shadow-sm backdrop-blur transition-all duration-300;
+}
+
+.panel:hover {
+  @apply -translate-y-0.5 shadow-lg shadow-sky-100;
+}
+
+.soft-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-2;
+}
+
+.subtle-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.glass-chip {
+  @apply rounded-full border border-sky-200 bg-sky-50/90 px-3 py-1 text-xs text-sky-700;
+}
+
+.playful-border {
+  position: relative;
+}
+
+.playful-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.35), rgba(99, 102, 241, 0.3)) border-box;
+  mask:
+    linear-gradient(#fff 0 0) padding-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.markdown {
+  @apply space-y-4 text-sm leading-7 text-slate-700;
+}
+
+.markdown h1 {
+  @apply text-2xl font-bold text-slate-900;
+}
+
+.markdown h2 {
+  @apply mt-8 text-xl font-semibold text-slate-900;
+}
+
+.markdown h3 {
+  @apply mt-6 text-lg font-semibold text-slate-800;
+}
+
+.markdown a {
+  @apply text-sky-700 underline decoration-sky-300 underline-offset-2 transition-colors hover:text-sky-800;
+}
+
+.markdown code {
+  @apply rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-800;
+}
+
+.markdown pre {
+  @apply overflow-x-auto rounded-xl border border-slate-200 bg-slate-900 p-4 text-slate-100;
+}
+
+.markdown ul {
+  @apply list-disc pl-5;
+}
+
+.markdown ol {
+  @apply list-decimal pl-5;
+}
+
+.float-soft {
+  animation: float-soft 3s ease-in-out infinite;
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/head.tsx
+================================================
+export default function Head() {
+  return (
+    <>
+      <meta content="x402 autonomous agent economy on Stellar" name="application-name" />
+      <meta content="Autonomous x402 agent economy with recursive hiring and protocol traces." name="description" />
+      <meta content="summary_large_image" name="twitter:card" />
+      <meta content="SynergiStellar" name="twitter:title" />
+      <meta content="Manager and worker agents with testnet payment traces on Stellar." name="twitter:description" />
+      <meta content="/opengraph-image" name="twitter:image" />
+    </>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/layout.tsx
+================================================
+import './globals.css';
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { ReactNode } from 'react';
+import Logo from '../components/Logo';
+
+export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  title: {
+    default: 'SynergiStellar',
+    template: '%s | SynergiStellar'
+  },
+  description: 'Autonomous agent economy on Stellar with x402 micropayments, recursive hiring, live topology, and protocol traces.',
+  keywords: [
+    'Stellar',
+    'x402',
+    'agent economy',
+    'autonomous agents',
+    'Soroban',
+    'USDC',
+    'hackathon'
+  ],
+  openGraph: {
+    type: 'website',
+    url: '/',
+    siteName: 'SynergiStellar',
+    title: 'SynergiStellar — x402 Autonomous Agent Economy',
+    description: 'Manager and worker agents execute paid tasks with x402 flow on Stellar.',
+    images: [
+      {
+        url: '/opengraph-image',
+        width: 1200,
+        height: 630,
+        alt: 'SynergiStellar Open Graph Image'
+      }
+    ]
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'SynergiStellar — x402 Agent Economy',
+    description: 'Recursive agent-to-agent payments and live protocol traces on Stellar.',
+    images: ['/opengraph-image']
+  },
+  alternates: {
+    canonical: '/'
+  },
+  icons: {
+    icon: '/logo.svg'
+  }
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 sm:px-6">
+          <header className="sticky top-0 z-20 mt-3 rounded-2xl border border-sky-100 bg-white/85 px-4 py-3 shadow-sm backdrop-blur">
+            <div className="flex items-center justify-between gap-4">
+              <Link className="group flex items-center gap-3" href="/">
+                <Logo className="float-soft h-9 w-9 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-105" />
+                <div className="leading-tight">
+                  <span className="block text-sm font-semibold tracking-wide text-slate-800">SynergiStellar</span>
+                  <span className="block text-xs text-slate-500">x402 agent economy demo</span>
+                </div>
+              </Link>
+
+              <div className="hidden items-center gap-2 md:flex">
+                <span className="glass-chip">Stellar Testnet</span>
+                <span className="glass-chip">Soroban Ready</span>
+              </div>
+
+              <nav className="flex items-center gap-2 text-sm">
+                <Link className="soft-ring rounded-lg px-3 py-1.5 text-slate-600 transition hover:bg-sky-50 hover:text-sky-700" href="/docs">
+                  Docs
+                </Link>
+                <Link className="soft-ring rounded-lg px-3 py-1.5 text-slate-600 transition hover:bg-sky-50 hover:text-sky-700" href="/privacy">
+                  Privacy
+                </Link>
+              </nav>
+            </div>
+          </header>
+          <div className="flex-1 pt-5">{children}</div>
+          <footer className="mt-10 border-t border-slate-200 py-8 text-xs text-slate-600">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p>SynergiStellar demo UI for autonomous x402 agent transactions on Stellar.</p>
+              <div className="flex items-center gap-4">
+                <Link className="hover:text-sky-700" href="/docs">
+                  Documentation
+                </Link>
+                <Link className="hover:text-sky-700" href="/privacy">
+                  Privacy Policy
+                </Link>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </body>
+    </html>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/manifest.ts
+================================================
+import type { MetadataRoute } from 'next';
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: 'SynergiStellar',
+    short_name: 'Synergi',
+    description: 'Autonomous x402 agent economy dashboard on Stellar.',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#020617',
+    theme_color: '#0f172a',
+    icons: [
+      {
+        src: '/logo.svg',
+        sizes: 'any',
+        type: 'image/svg+xml'
+      }
+    ]
+  };
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/opengraph-image.tsx
+================================================
+import { ImageResponse } from 'next/og';
+
+export const runtime = 'edge';
+export const size = {
+  width: 1200,
+  height: 630
+};
+export const contentType = 'image/png';
+
+export default function OpenGraphImage() {
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          padding: 64,
+          background: 'linear-gradient(135deg, #020617 0%, #0f172a 45%, #1d4ed8 100%)',
+          color: '#E2E8F0'
+        }}
+      >
+        <div style={{ fontSize: 28, opacity: 0.85 }}>SynergiStellar</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: 72, fontWeight: 700 }}>x402 Agent Economy</div>
+          <div style={{ fontSize: 32, opacity: 0.92 }}>Recursive hiring, protocol traces, and Stellar settlement</div>
+        </div>
+        <div style={{ fontSize: 24, opacity: 0.8 }}>Manager → Workers → Recursive Agents</div>
+      </div>
+    ),
+    {
+      ...size
+    }
+  );
+}
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/page.tsx
+================================================
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import AgentCatalog from '../components/AgentCatalog';
+import AgentChat from '../components/AgentChat';
+import ProtocolTrace from '../components/ProtocolTrace';
+import TopologyGraph from '../components/TopologyGraph';
+import TransactionLog from '../components/TransactionLog';
+import { AgentCatalogItem, ApiEnvelope, SessionStatus, StreamEvent } from '../lib/types';
+
+type LatestDoc = {
+  slug: string;
+  title: string;
+  updatedAt: string;
+};
+
+function formatUpdatedDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+export const dynamic = 'force-dynamic';
+
+export default function HomePage() {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [catalog, setCatalog] = useState<AgentCatalogItem[]>([]);
+  const [latestDocs, setLatestDocs] = useState<LatestDoc[]>([]);
+  const [statusSnapshot, setStatusSnapshot] = useState<SessionStatus | null>(null);
+
+  useEffect(() => {
+    void fetch('/api/agents/catalog')
+      .then((res) => res.json())
+      .then((payload: ApiEnvelope<{ items: AgentCatalogItem[] }>) => {
+        if (payload.ok && payload.data) {
+          setCatalog(payload.data.items);
+          return;
+        }
+        setCatalog([]);
+      })
+      .catch(() => setCatalog([]));
+  }, []);
+
+  useEffect(() => {
+    void fetch('/api/docs/latest')
+      .then((res) => res.json())
+      .then((payload: ApiEnvelope<{ items: LatestDoc[] }>) => {
+        if (payload.ok && payload.data) {
+          setLatestDocs(payload.data.items);
+          return;
+        }
+        setLatestDocs([]);
+      })
+      .catch(() => setLatestDocs([]));
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    setEvents([]);
+    setStatusSnapshot(null);
+
+    const backend = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
+    const source = new EventSource(`${backend}/api/events/${sessionId}`);
+
+    source.onmessage = (event) => {
+      try {
+        const raw = JSON.parse(event.data) as Record<string, unknown>;
+        const parsed: StreamEvent = {
+          type: typeof raw.type === 'string' ? raw.type : 'unknown',
+          ...raw
+        };
+        setEvents((current) => [...current, parsed]);
+      } catch {
+        setEvents((current) => [...current, { type: 'parse-error', raw: event.data }]);
+      }
+    };
+
+    source.onerror = () => {
+      source.close();
+    };
+
+    return () => source.close();
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let active = true;
+    const poll = async () => {
+      const response = await fetch(`/api/status/${sessionId}`);
+      const payload = (await response.json()) as ApiEnvelope<SessionStatus>;
+      if (!active) return;
+      if (payload.ok && payload.data) {
+        setStatusSnapshot(payload.data);
+      }
+    };
+
+    const handle = setInterval(() => {
+      void poll();
+    }, 1200);
+    void poll();
+
+    return () => {
+      active = false;
+      clearInterval(handle);
+    };
+  }, [sessionId]);
+
+  const totalPaid = useMemo(() => {
+    return Number(statusSnapshot?.metrics.totalSpend ?? 0).toFixed(6);
+  }, [statusSnapshot]);
+
+  const isRunning = Boolean(sessionId && !statusSnapshot?.complete);
+
+  return (
+    <main className="mx-auto max-w-7xl pb-8">
+      <header className="playful-border subtle-grid mb-6 rounded-2xl border border-sky-100 bg-white/80 p-5 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">SynergiStellar Dashboard</h1>
+            <p className="text-sm text-slate-600">x402 autonomous agent economy on Stellar</p>
+          </div>
+          <span className="glass-chip w-fit">Live Demo Mode</span>
+        </div>
+        <p className="mt-2 text-sm text-slate-700">Payment volume: {totalPaid} USDC</p>
+        <p className="text-xs text-slate-500">
+          {statusSnapshot
+            ? `Steps ${statusSnapshot.completedSteps}/${statusSnapshot.totalSteps} · Transactions ${statusSnapshot.metrics.transactionCount}`
+            : 'No active session'}
+        </p>
+      </header>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <AgentChat
+          onSessionStart={setSessionId}
+          events={events}
+          summary={statusSnapshot?.summary ?? ''}
+          isRunning={isRunning}
+        />
+        <AgentCatalog catalog={catalog} />
+        <TopologyGraph events={events} />
+        <TransactionLog transactions={statusSnapshot?.transactions ?? []} />
+      </div>
+
+      <section className="panel mt-4 p-4 md:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-slate-900">Latest Docs</h2>
+          <Link
+            href="/docs"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-indigo-300 hover:text-indigo-700"
+          >
+            View all docs
+          </Link>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {latestDocs.map((doc) => (
+            <Link
+              key={doc.slug}
+              href={`/docs/${doc.slug}`}
+              className="group rounded-xl border border-slate-200 bg-white p-3 text-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-sm"
+            >
+              <div className="mb-2 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700">
+                Updated recently · {formatUpdatedDate(doc.updatedAt)}
+              </div>
+              <p className="font-medium text-slate-900">{doc.title}</p>
+              <p className="mt-1 text-xs text-indigo-600 transition-transform duration-200 group-hover:translate-x-0.5">
+                Open doc →
+              </p>
+            </Link>
+          ))}
+          {!latestDocs.length && <p className="text-sm text-slate-500">No docs found.</p>}
+        </div>
+      </section>
+
+      <div className="mt-4">
+        <ProtocolTrace traces={statusSnapshot?.protocolTrace ?? []} />
+      </div>
+    </main>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/robots.ts
+================================================
+import type { MetadataRoute } from 'next';
+
+export default function robots(): MetadataRoute.Robots {
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+  return {
+    rules: {
+      userAgent: '*',
+      allow: '/',
+      disallow: ['/api/']
+    },
+    sitemap: `${base}/sitemap.xml`
+  };
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/sitemap.ts
+================================================
+import type { MetadataRoute } from 'next';
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+  const updated = new Date();
+  return [
+    {
+      url: `${base}/`,
+      lastModified: updated,
+      changeFrequency: 'hourly',
+      priority: 1
+    },
+    {
+      url: `${base}/privacy`,
+      lastModified: updated,
+      changeFrequency: 'monthly',
+      priority: 0.4
+    }
+  ];
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/api/[...path]/route.ts
+================================================
+import { NextRequest, NextResponse } from 'next/server';
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
+
+async function proxy(request: NextRequest, path: string[]): Promise<NextResponse> {
+  const targetUrl = new URL(`${BACKEND_URL}/${path.join('/')}`);
+  request.nextUrl.searchParams.forEach((value, key) => {
+    targetUrl.searchParams.set(key, value);
+  });
+
+  const isBodyAllowed = !['GET', 'HEAD'].includes(request.method.toUpperCase());
+  const body = isBodyAllowed ? await request.text() : undefined;
+
+  const upstream = await fetch(targetUrl.toString(), {
+    method: request.method,
+    headers: {
+      'Content-Type': request.headers.get('content-type') ?? 'application/json'
+    },
+    body
+  });
+
+  const text = await upstream.text();
+  return new NextResponse(text, {
+    status: upstream.status,
+    headers: {
+      'Content-Type': upstream.headers.get('content-type') ?? 'application/json'
+    }
+  });
+}
+
+export async function GET(request: NextRequest, context: { params: { path: string[] } }) {
+  return proxy(request, context.params.path);
+}
+
+export async function POST(request: NextRequest, context: { params: { path: string[] } }) {
+  return proxy(request, context.params.path);
+}
+
+export async function PUT(request: NextRequest, context: { params: { path: string[] } }) {
+  return proxy(request, context.params.path);
+}
+
+export async function DELETE(request: NextRequest, context: { params: { path: string[] } }) {
+  return proxy(request, context.params.path);
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/api/docs/latest/route.ts
+================================================
+import { NextResponse } from "next/server";
+
+import { listNewestDocs } from "../../../../lib/docs";
+
+export async function GET() {
+  const docs = await listNewestDocs(3);
+  return NextResponse.json({ ok: true, data: { items: docs } });
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/docs/page.tsx
+================================================
+import Link from "next/link";
+
+import { listDocs } from "../../lib/docs";
+
+export const metadata = {
+  title: "Docs | SynergiStellar",
+  description: "SynergiStellar documentation and project guides.",
+};
+
+export default async function DocsIndexPage() {
+  const docs = await listDocs();
+
+  return (
+    <main className="mx-auto max-w-5xl px-6 py-10 md:px-8">
+      <section className="panel p-6 md:p-8">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Documentation</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Product, architecture, and frontend design notes rendered directly from markdown files.
+        </p>
+
+        <ul className="mt-6 space-y-3">
+          {docs.map((doc) => (
+            <li key={doc.slug}>
+              <Link
+                href={`/docs/${doc.slug}`}
+                className="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-sm"
+              >
+                <span className="font-medium text-slate-900">{doc.title}</span>
+                <span className="text-indigo-600 transition-transform duration-200 group-hover:translate-x-1">→</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </main>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/docs/[slug]/page.tsx
+================================================
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+import { getDocBySlug, listDocs } from "../../../lib/docs";
+
+type Props = {
+  params: {
+    slug: string;
+  };
+};
+
+export async function generateStaticParams() {
+  const docs = await listDocs();
+  return docs.map((doc) => ({ slug: doc.slug }));
+}
+
+export default async function DocPage({ params }: Props) {
+  const doc = await getDocBySlug(params.slug);
+  if (!doc) notFound();
+
+  return (
+    <main className="mx-auto max-w-5xl px-6 py-10 md:px-8">
+      <section className="panel p-6 md:p-8">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">{doc.title}</h1>
+          <Link
+            href="/docs"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:border-indigo-300 hover:text-indigo-700"
+          >
+            Back to docs
+          </Link>
+        </div>
+
+        <article className="markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
+        </article>
+      </section>
+    </main>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/app/privacy/page.tsx
+================================================
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Privacy Policy',
+  description: 'Privacy policy for the SynergiStellar demo application.'
+};
+
+export default function PrivacyPage() {
+  return (
+    <main className="pb-10">
+      <section className="panel">
+        <h1 className="text-xl font-semibold">Privacy Policy</h1>
+        <div className="mt-4 space-y-4 text-sm text-slate-300">
+          <p>
+            SynergiStellar is a hackathon demo. The application stores session and transaction event data in memory for
+            runtime visualization and debugging.
+          </p>
+          <p>
+            API payloads submitted through the dashboard can include prompts and execution traces. Do not submit private,
+            regulated, or sensitive information.
+          </p>
+          <p>
+            Wallet and payment values displayed by this demo may be simulated depending on configuration. In strict x402
+            mode, payment metadata and protocol traces are recorded for session diagnostics.
+          </p>
+          <p>
+            This project does not provide production data retention guarantees. Restarting backend services may clear
+            runtime state.
+          </p>
+          <p>
+            Contact the repository maintainer for policy updates when deploying outside local development or testnet
+            environments.
+          </p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/components/AgentCatalog.tsx
+================================================
+'use client';
+
+import { AgentCatalogItem } from '../lib/types';
+
+interface AgentCatalogProps {
+  catalog: AgentCatalogItem[];
+}
+
+export default function AgentCatalog({ catalog }: AgentCatalogProps) {
+  return (
+    <section className="panel">
+      <h2 className="text-lg font-semibold text-slate-900">Agent Catalog</h2>
+      <div className="mt-3 space-y-2">
+        {catalog.map((item) => (
+          <article className="rounded-xl border border-slate-200 bg-white p-3 text-sm transition hover:-translate-y-0.5 hover:shadow-md" key={item.name}>
+            <div className="flex items-center justify-between">
+              <p className="font-medium text-slate-900">{item.name}</p>
+              <div className="flex items-center gap-2">
+                <p>{item.price.toFixed(6)} USDC</p>
+                {item.recursive ? <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">recursive</span> : null}
+              </div>
+            </div>
+            <p className="text-slate-700">Reputation: {(item.reputation / 100).toFixed(1)}%</p>
+            <p className="text-slate-500">Endpoint: /agents/{item.endpoint}</p>
+            <p className="text-slate-600">{item.capabilities.join(', ')}</p>
+            <p className="text-slate-500">
+              Jobs: {item.jobsCompleted} success / {item.jobsFailed} failed
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/components/AgentChat.tsx
+================================================
+'use client';
+
+import { FormEvent, useState } from 'react';
+import { StreamEvent } from '../lib/types';
+
+interface AgentChatProps {
+  onSessionStart: (sessionId: string) => void;
+  events: StreamEvent[];
+  summary: string;
+  isRunning: boolean;
+}
+
+export default function AgentChat({ onSessionStart, events, summary, isRunning }: AgentChatProps) {
+  const [query, setQuery] = useState('Research AI market trends, run sentiment check, and provide XLM price.');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = (await response.json()) as { ok: boolean; data?: { sessionId: string }; error?: { message: string } };
+      if (!payload.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? 'Failed to start session');
+      }
+      onSessionStart(payload.data.sessionId);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Request failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const eventLines = events
+    .filter((event) => ['status', 'hiring', 'step-start', 'step-complete', 'step-failed', 'recursive-paid', 'paid', 'error', 'complete'].includes(event.type))
+    .slice(-12)
+    .map((event, index) => {
+      const prefix =
+        event.type === 'error'
+          ? '✕'
+          : event.type === 'complete'
+            ? '✓'
+            : event.type === 'paid' || event.type === 'recursive-paid'
+              ? '$'
+              : '•';
+      const message =
+        typeof event.message === 'string'
+          ? event.message
+          : event.type === 'recursive-paid' && typeof event.source === 'string' && typeof event.agent === 'string'
+            ? `${event.source} paid ${event.agent}`
+          : typeof event.agent === 'string'
+            ? `${event.type} · ${event.agent}`
+            : event.type;
+      return (
+        <li key={`${event.type}-${index}`} className="flex items-start gap-2 text-xs text-slate-600">
+          <span
+            className={`mt-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full text-[10px] ${
+              event.type === 'error'
+                ? 'bg-rose-100 text-rose-700'
+                : event.type === 'complete'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : event.type === 'paid' || event.type === 'recursive-paid'
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {prefix}
+          </span>
+          <span>{message}</span>
+        </li>
+      );
+    });
+
+  return (
+    <section className="panel">
+      <h2 className="text-lg font-semibold text-slate-900">Manager Agent Query</h2>
+      <form className="mt-3 flex flex-col gap-3" onSubmit={submit}>
+        <textarea
+          className="soft-ring min-h-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner transition focus:border-sky-300"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <button
+          className="soft-ring w-fit rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:-translate-y-0.5 hover:bg-sky-700 disabled:opacity-60"
+          disabled={loading || isRunning}
+          type="submit"
+        >
+          {loading ? 'Submitting...' : isRunning ? 'Running...' : 'Run Manager'}
+        </button>
+      </form>
+      {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
+
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <p className="text-xs font-semibold text-slate-700">Live Execution</p>
+        <ul className="mt-2 space-y-1">{eventLines.length ? eventLines : <li className="text-xs text-slate-500">Waiting for session events</li>}</ul>
+      </div>
+
+      {summary ? (
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
+          {summary}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/components/Logo.tsx
+================================================
+interface LogoProps {
+  className?: string;
+}
+
+export default function Logo({ className }: LogoProps) {
+  return <img alt="SynergiStellar logo" className={className ?? 'h-8 w-8'} src="/logo.svg" />;
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/components/ProtocolTrace.tsx
+================================================
+'use client';
+
+import { ProtocolTraceItem } from '../lib/types';
+
+interface ProtocolTraceProps {
+  traces: ProtocolTraceItem[];
+}
+
+export default function ProtocolTrace({ traces }: ProtocolTraceProps) {
+  const ordered = [...traces].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  return (
+    <section className="panel">
+      <h2 className="text-lg font-semibold text-slate-900">Protocol Trace</h2>
+      <div className="mt-3 max-h-[28rem] space-y-2 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+        {ordered.map((trace) => (
+          <article className="rounded-xl border border-slate-200 bg-white p-3 transition hover:shadow-sm" key={`${trace.step}-${trace.timestamp}`}>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="font-medium text-slate-800">{trace.step}</p>
+              {trace.response ? (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    trace.response.status === 402
+                      ? 'bg-amber-100 text-amber-700'
+                      : trace.response.status >= 400
+                        ? 'bg-rose-100 text-rose-700'
+                        : 'bg-emerald-100 text-emerald-700'
+                  }`}
+                >
+                  {trace.response.status}
+                </span>
+              ) : (
+                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">request</span>
+              )}
+            </div>
+
+            <p className="text-slate-600">
+              {trace.request.method} {trace.request.url}
+            </p>
+            <p className="mt-1 text-slate-500">{new Date(trace.timestamp).toLocaleTimeString()}</p>
+
+            <p className="mt-2 text-slate-500">req headers: {Object.keys(trace.request.headers).join(', ') || 'none'}</p>
+            {trace.request.body ? (
+              <pre className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-600">
+                {JSON.stringify(trace.request.body, null, 2)}
+              </pre>
+            ) : null}
+
+            {trace.response ? (
+              <p className="mt-2 text-slate-500">
+                res headers: {Object.keys(trace.response.headers).join(', ') || 'none'}
+              </p>
+            ) : null}
+          </article>
+        ))}
+        {ordered.length === 0 ? <p className="text-slate-500">No protocol trace yet</p> : null}
+      </div>
+    </section>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/components/TopologyGraph.tsx
+================================================
+'use client';
+
+import * as d3 from 'd3';
+import { useEffect, useMemo, useRef } from 'react';
+import { StreamEvent } from '../lib/types';
+
+interface TopologyGraphProps {
+  events: StreamEvent[];
+}
+
+interface GraphNode extends d3.SimulationNodeDatum {
+  id: string;
+  type: 'user' | 'manager' | 'worker';
+}
+
+interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
+  source: string | GraphNode;
+  target: string | GraphNode;
+  recursive?: boolean;
+  amount?: number;
+  highlighted?: boolean;
+}
+
+export default function TopologyGraph({ events }: TopologyGraphProps) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  const graph = useMemo(() => {
+    const nodes = new Map<string, GraphNode>([
+      ['User', { id: 'User', type: 'user' }],
+      ['Manager', { id: 'Manager', type: 'manager' }]
+    ]);
+
+    const links: GraphLink[] = [{ source: 'User', target: 'Manager', highlighted: true }];
+
+    events.forEach((event) => {
+      const isPaymentEvent = event.type === 'paid' || event.type === 'recursive-paid';
+      const isHiringEvent = event.type === 'hiring' || event.type === 'step-start';
+      if (!isPaymentEvent && !isHiringEvent) return;
+
+      const agent = typeof event.agent === 'string' ? event.agent : null;
+      if (!agent) return;
+      if (!nodes.has(agent)) {
+        nodes.set(agent, { id: agent, type: 'worker' });
+      }
+
+      const source = typeof event.source === 'string' ? event.source : 'Manager';
+      if (!nodes.has(source)) {
+        nodes.set(source, { id: source, type: source === 'User' ? 'user' : source === 'Manager' ? 'manager' : 'worker' });
+      }
+
+      links.push({
+        source,
+        target: agent,
+        recursive: Number(event.depth ?? 0) > 1 || source === 'DeepResearch',
+        amount: Number(event.amount ?? event.price ?? 0),
+        highlighted: isPaymentEvent
+      });
+    });
+
+    return {
+      nodes: Array.from(nodes.values()),
+      links
+    };
+  }, [events]);
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+
+    const width = 620;
+    const height = 300;
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    const defs = svg.append('defs');
+    defs
+      .append('marker')
+      .attr('id', 'arrow')
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 18)
+      .attr('refY', 0)
+      .attr('markerWidth', 6)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-5L10,0L0,5')
+      .attr('fill', '#64748b');
+
+    const simulation = d3
+      .forceSimulation(graph.nodes)
+      .force('link', d3.forceLink(graph.links).id((d) => (d as GraphNode).id).distance(95))
+      .force('charge', d3.forceManyBody().strength(-280))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collide', d3.forceCollide(26));
+
+    const link = svg
+      .append('g')
+      .selectAll('line')
+      .data(graph.links)
+      .enter()
+      .append('line')
+      .attr('stroke', (d) => (d.recursive ? '#f59e0b' : d.highlighted ? '#2563eb' : '#64748b'))
+      .attr('stroke-width', (d) => (d.recursive ? 2.7 : d.highlighted ? 2.2 : 1.6))
+      .attr('stroke-dasharray', (d) => (d.recursive ? '5,4' : '0'))
+      .attr('marker-end', 'url(#arrow)')
+      .attr('opacity', (d) => (d.highlighted ? 1 : 0.8));
+
+    link
+      .transition()
+      .duration(850)
+      .attr('stroke-opacity', 0.5)
+      .transition()
+      .duration(850)
+      .attr('stroke-opacity', 1)
+      .on('end', function repeat() {
+        d3.select(this)
+          .transition()
+            .duration(780)
+            .attr('stroke-opacity', 0.45)
+          .transition()
+            .duration(780)
+          .attr('stroke-opacity', 1)
+          .on('end', repeat);
+      });
+
+    const node = svg
+      .append('g')
+      .selectAll('g')
+      .data(graph.nodes)
+      .enter()
+      .append('g')
+      .call(
+        d3
+          .drag<SVGGElement, GraphNode>()
+          .on('start', (event, d) => {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+          })
+          .on('drag', (event, d) => {
+            d.fx = event.x;
+            d.fy = event.y;
+          })
+          .on('end', (event, d) => {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+          })
+      );
+
+    node
+      .append('circle')
+      .attr('r', (d) => (d.type === 'manager' ? 18 : 14))
+      .attr('fill', (d) => (d.type === 'manager' ? '#2563eb' : d.type === 'user' ? '#0ea5e9' : '#334155'))
+      .attr('stroke', '#cbd5e1')
+      .attr('stroke-width', 1.2);
+
+    node
+      .append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', 30)
+      .attr('fill', '#334155')
+      .attr('font-size', 11.5)
+      .attr('font-weight', 600)
+      .text((d) => d.id);
+
+    simulation.on('tick', () => {
+      link
+        .attr('x1', (d) => (d.source as GraphNode).x ?? 0)
+        .attr('y1', (d) => (d.source as GraphNode).y ?? 0)
+        .attr('x2', (d) => (d.target as GraphNode).x ?? 0)
+        .attr('y2', (d) => (d.target as GraphNode).y ?? 0);
+
+      node.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+    });
+
+    return () => {
+      simulation.stop();
+    };
+  }, [graph]);
+
+  return (
+    <section className="panel">
+      <h2 className="text-lg font-semibold text-slate-900">Topology</h2>
+      <p className="mt-1 text-xs text-slate-500">Blue links show manager payments; amber links show recursive DeepResearch hires.</p>
+      <svg className="mt-3 w-full rounded-xl border border-slate-200 bg-white shadow-inner" ref={svgRef} viewBox="0 0 620 300" />
+    </section>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/components/TransactionLog.tsx
+================================================
+'use client';
+
+import { PaymentRecord } from '../lib/types';
+
+interface TransactionLogProps {
+  transactions: PaymentRecord[];
+}
+
+export default function TransactionLog({ transactions }: TransactionLogProps) {
+  const sorted = [...transactions].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  return (
+    <section className="panel">
+      <h2 className="text-lg font-semibold text-slate-900">Transaction Log</h2>
+      <div className="mt-3 space-y-2 text-sm">
+        {sorted.map((item) => {
+          const isSimulated = item.txHash.startsWith('fallback-') || item.txHash.startsWith('mock-');
+          return (
+            <article className="rounded-xl border border-slate-200 bg-white p-3 transition hover:-translate-y-0.5 hover:shadow-md" key={item.id}>
+            <div className="flex items-center justify-between">
+              <p className="text-slate-800">
+                <span className="font-medium">{item.from}</span>
+                <span className="mx-1 text-slate-400">→</span>
+                <span className="font-medium">{item.to}</span>
+              </p>
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`rounded px-2 py-0.5 text-[10px] ${item.depth > 1 ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'}`}
+                >
+                  {item.depth > 1 ? `recursive d${item.depth}` : 'direct d1'}
+                </span>
+                <span
+                  className={`rounded px-2 py-0.5 text-[10px] ${
+                    isSimulated ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                  }`}
+                >
+                  {isSimulated ? 'simulated' : 'settled'}
+                </span>
+              </div>
+            </div>
+            <p className="mt-1 text-xs font-medium text-slate-700">{item.amount.toFixed(6)} USDC</p>
+            <p className="mt-1 text-xs text-slate-400">{new Date(item.timestamp).toLocaleString()}</p>
+            <a className="mt-1 inline-block text-sky-700 underline decoration-sky-300" href={item.explorerUrl} rel="noreferrer" target="_blank">
+              {item.txHash}
+            </a>
+            </article>
+          );
+        })}
+        {sorted.length === 0 ? <p className="text-slate-400">No payments yet</p> : null}
+      </div>
+    </section>
+  );
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/lib/docs.ts
+================================================
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+export type DocMeta = {
+  slug: string;
+  title: string;
+};
+
+export type NewestDocMeta = DocMeta & {
+  updatedAt: string;
+};
+
+type DocMetaWithDate = DocMeta & {
+  updatedAt: number;
+};
+
+const DOCS_DIR = path.join(process.cwd(), "..", "docs");
+
+function titleFromMarkdown(content: string, fallback: string): string {
+  const heading = content.match(/^#\s+(.+)$/m);
+  return heading?.[1]?.trim() || fallback;
+}
+
+export async function listDocs(): Promise<DocMeta[]> {
+  const entries = await fs.readdir(DOCS_DIR, { withFileTypes: true });
+
+  const docs = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map(async (entry) => {
+        const slug = entry.name.replace(/\.md$/, "");
+        const fullPath = path.join(DOCS_DIR, entry.name);
+        const content = await fs.readFile(fullPath, "utf8");
+        const title = titleFromMarkdown(content, slug);
+
+        return { slug, title };
+      }),
+  );
+
+  return docs.sort((a, b) => a.title.localeCompare(b.title));
+}
+
+export async function listNewestDocs(limit = 3): Promise<NewestDocMeta[]> {
+  const entries = await fs.readdir(DOCS_DIR, { withFileTypes: true });
+
+  const docs: DocMetaWithDate[] = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map(async (entry) => {
+        const slug = entry.name.replace(/\.md$/, "");
+        const fullPath = path.join(DOCS_DIR, entry.name);
+        const [content, stat] = await Promise.all([fs.readFile(fullPath, "utf8"), fs.stat(fullPath)]);
+        const title = titleFromMarkdown(content, slug);
+
+        return { slug, title, updatedAt: stat.mtimeMs };
+      }),
+  );
+
+  return docs
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, limit)
+    .map(({ slug, title, updatedAt }) => ({ slug, title, updatedAt: new Date(updatedAt).toISOString() }));
+}
+
+export async function getDocBySlug(slug: string): Promise<{ title: string; content: string } | null> {
+  const safeSlug = slug.replace(/[^a-zA-Z0-9\-_]/g, "");
+  if (!safeSlug) return null;
+
+  const fullPath = path.join(DOCS_DIR, `${safeSlug}.md`);
+
+  try {
+    const content = await fs.readFile(fullPath, "utf8");
+    const title = titleFromMarkdown(content, safeSlug);
+    return { title, content };
+  } catch {
+    return null;
+  }
+}
+
+
+
+================================================
+FILE: synergi-stellar/frontend/src/lib/types.ts
+================================================
+export interface AgentCatalogItem {
+  name: 'PriceFeed' | 'NewsDigest' | 'Summarizer' | 'SentimentAI' | 'MathSolver' | 'DeepResearch';
+  endpoint: string;
+  price: number;
+  reputation: number;
+  capabilities: string[];
+  recursive: boolean;
+  jobsCompleted: number;
+  jobsFailed: number;
+}
+
+export interface PaymentRecord {
+  id: string;
+  timestamp: string;
+  from: string;
+  to: string;
+  amount: number;
+  txHash: string;
+  explorerUrl: string;
+  sessionId?: string;
+  depth: number;
+}
+
+export interface ProtocolTraceItem {
+  timestamp: string;
+  step: string;
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: unknown;
+  };
+  response?: {
+    status: number;
+    headers: Record<string, string>;
+    body?: unknown;
+  };
+}
+
+export interface SessionMetrics {
+  sessionId: string;
+  totalSpend: number;
+  transactionCount: number;
+  agentUsage: Record<string, { agentName: string; count: number; totalSpent: number; lastUsedAt: string }>;
+}
+
+export interface SessionStatus {
+  sessionId: string;
+  query: string;
+  complete: boolean;
+  summary: string;
+  agentsHired: string[];
+  totalCost: number;
+  txHashes: string[];
+  startedAt: string;
+  updatedAt: string;
+  errors: string[];
+  completedSteps: number;
+  totalSteps: number;
+  partial: boolean;
+  protocolTrace: ProtocolTraceItem[];
+  metrics: SessionMetrics;
+  transactions: PaymentRecord[];
+}
+
+export interface ApiError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+export interface ApiEnvelope<T> {
+  ok: boolean;
+  data?: T;
+  error?: ApiError;
+}
+
+export interface StreamEvent {
+  type: string;
+  at?: string;
+  [key: string]: unknown;
+}
+
+
+
+================================================
+FILE: synergi-stellar/mcp-server/package.json
+================================================
+{
+  "name": "synergi-stellar-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
+
+
+
+================================================
+FILE: synergi-stellar/mcp-server/tsconfig.json
+================================================
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/**/*"
+  ]
+}
+
+
+================================================
+FILE: synergi-stellar/mcp-server/src/index.ts
+================================================
+#!/usr/bin/env node
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ListToolsRequestSchema, Tool } from '@modelcontextprotocol/sdk/types.js';
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000';
+const DEFAULT_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 12000);
+
+interface Envelope<T> {
+  ok: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+}
+
+const tools: Tool[] = [
+  {
+    name: 'list_agents',
+    description: 'List all available worker agents with pricing and reputation.',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'query_manager_agent',
+    description: 'Submit a natural language query to manager agent and return final status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Task prompt for manager agent' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'get_agent_reputation',
+    description: 'Get reputation and pricing details for one agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: { type: 'string', description: 'Agent name such as PriceFeed' }
+      },
+      required: ['agent_name']
+    }
+  },
+  {
+    name: 'call_agent_direct',
+    description: 'Directly call a worker endpoint and return paid result.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: {
+          type: 'string',
+          enum: ['PriceFeed', 'NewsDigest', 'Summarizer', 'SentimentAI', 'MathSolver', 'DeepResearch']
+        },
+        input: { type: 'string' }
+      },
+      required: ['agent_name', 'input']
+    }
+  },
+  {
+    name: 'get_transaction_history',
+    description: 'Get x402 payment history with explorer links.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: { type: 'number', default: 10 } }
+    }
+  },
+  {
+    name: 'get_wallet_balance',
+    description: 'Get manager wallet balances for XLM and USDC.',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'create_agent_wallet',
+    description: 'Create a sponsored wallet for an agent and return credentials.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: { type: 'string' }
+      },
+      required: ['agent_name']
+    }
+  }
+];
+
+async function callBackend<T>(path: string, options?: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  const response = await fetch(`${BACKEND_URL}${path}`, {
+    ...options,
+    signal: controller.signal
+  }).finally(() => clearTimeout(timeout));
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}: ${await response.text()}`);
+  }
+
+  const payload = (await response.json()) as Envelope<T> | T;
+  if (typeof payload === 'object' && payload !== null && 'ok' in payload) {
+    const envelope = payload as Envelope<T>;
+    if (!envelope.ok || envelope.data === undefined) {
+      throw new Error(`${envelope.error?.code ?? 'BACKEND_ERROR'}: ${envelope.error?.message ?? 'Unknown backend failure'}`);
+    }
+    return envelope.data;
+  }
+  return payload as T;
+}
+
+async function handleTool(name: string, args: Record<string, unknown>): Promise<string> {
+  switch (name) {
+    case 'list_agents': {
+      const data = await callBackend<{ items: unknown[]; count: number }>('/agents/catalog');
+      return JSON.stringify(data, null, 2);
+    }
+    case 'query_manager_agent': {
+      const query = String(args.query ?? '');
+      const start = await callBackend<{ sessionId: string }>('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      }, 6000);
+
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const status = await callBackend<{
+          complete: boolean;
+          summary: string;
+          agentsHired: string[];
+          totalCost: number;
+          txHashes: string[];
+        }>(`/api/status/${start.sessionId}`, undefined, 6000);
+        if (status.complete) {
+          return [
+            `Summary: ${status.summary}`,
+            `Agents hired: ${status.agentsHired.join(', ') || 'none'}`,
+            `Total cost: ${status.totalCost} USDC`,
+            `Transactions: ${status.txHashes.join(', ') || 'none'}`
+          ].join('\n');
+        }
+      }
+      return 'Timeout waiting for completion.';
+    }
+    case 'get_agent_reputation': {
+      const agentName = String(args.agent_name ?? '');
+      const data = await callBackend(`/agents/reputation/${agentName}`);
+      return JSON.stringify(data, null, 2);
+    }
+    case 'call_agent_direct': {
+      const endpointMap: Record<string, string> = {
+        PriceFeed: 'price',
+        NewsDigest: 'news',
+        Summarizer: 'summarize',
+        SentimentAI: 'sentiment',
+        MathSolver: 'math',
+        DeepResearch: 'research'
+      };
+      const agentName = String(args.agent_name ?? '');
+      const endpoint = endpointMap[agentName];
+      if (!endpoint) {
+        throw new Error(`Unknown agent ${agentName}`);
+      }
+      const data = await callBackend(`/agents/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: String(args.input ?? '') })
+      });
+      return JSON.stringify(data, null, 2);
+    }
+    case 'get_transaction_history': {
+      const limit = Number(args.limit ?? 10);
+      const data = await callBackend<{ items: unknown[] }>(`/api/transactions?limit=${limit}`);
+      return JSON.stringify(data, null, 2);
+    }
+    case 'get_wallet_balance': {
+      const data = await callBackend('/api/wallet/balance');
+      return JSON.stringify(data, null, 2);
+    }
+    case 'create_agent_wallet': {
+      const data = await callBackend('/api/wallet/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: String(args.agent_name ?? '') })
+      });
+      return JSON.stringify(data, null, 2);
+    }
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+
+const server = new Server(
+  {
+    name: 'synergi-stellar',
+    version: '1.0.0'
+  },
+  {
+    capabilities: {
+      tools: {}
+    }
+  }
+);
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  try {
+    const text = await handleTool(request.params.name, (request.params.arguments as Record<string, unknown>) || {});
+    return { content: [{ type: 'text', text }] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const formatted = {
+      type: 'mcp_error',
+      tool: request.params.name,
+      message,
+      hint: 'Check backend health, env variables, and session status endpoint.'
+    };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(formatted, null, 2) }],
+      isError: true
+    };
+  }
+});
+
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main().catch((error) => {
+  // eslint-disable-next-line no-console
+  console.error(error);
+  process.exit(1);
+});
+
+
+
+================================================
+FILE: synergi-stellar/scripts/setup-wallets.js
+================================================
+const { Keypair } = require('@stellar/stellar-sdk');
+const fs = require('node:fs');
+
+const walletNames = [
+  'MANAGER',
+  'AGENT_PRICE',
+  'AGENT_NEWS',
+  'AGENT_SUMMARIZE',
+  'AGENT_SENTIMENT',
+  'AGENT_MATH',
+  'AGENT_RESEARCH'
+];
+
+function run() {
+  const lines = [];
+  walletNames.forEach((name) => {
+    const keypair = Keypair.random();
+    lines.push(`${name}_PUBLIC=${keypair.publicKey()}`);
+    lines.push(`${name}_SECRET=${keypair.secret()}`);
+  });
+  fs.writeFileSync('backend/.env.generated', `${lines.join('\n')}\n`, 'utf8');
+  console.log('Generated backend/.env.generated');
+}
+
+run();
+
+

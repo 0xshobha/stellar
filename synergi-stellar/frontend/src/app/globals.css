@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-50 text-slate-800;
+  background-image:
+    radial-gradient(circle at 10% 10%, rgba(14, 165, 233, 0.16), transparent 28%),
+    radial-gradient(circle at 90% 20%, rgba(59, 130, 246, 0.1), transparent 30%),
+    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.panel {
+  @apply rounded-2xl border border-sky-100/80 bg-white/90 p-5 shadow-sm backdrop-blur transition-all duration-300;
+}
+
+.panel:hover {
+  @apply -translate-y-0.5 shadow-lg shadow-sky-100;
+}
+
+.soft-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-2;
+}
+
+.subtle-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.glass-chip {
+  @apply rounded-full border border-sky-200 bg-sky-50/90 px-3 py-1 text-xs text-sky-700;
+}
+
+.playful-border {
+  position: relative;
+}
+
+.playful-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.35), rgba(99, 102, 241, 0.3)) border-box;
+  mask:
+    linear-gradient(#fff 0 0) padding-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.markdown {
+  @apply space-y-4 text-sm leading-7 text-slate-700;
+}
+
+.markdown h1 {
+  @apply text-2xl font-bold text-slate-900;
+}
+
+.markdown h2 {
+  @apply mt-8 text-xl font-semibold text-slate-900;
+}
+
+.markdown h3 {
+  @apply mt-6 text-lg font-semibold text-slate-800;
+}
+
+.markdown a {
+  @apply text-sky-700 underline decoration-sky-300 underline-offset-2 transition-colors hover:text-sky-800;
+}
+
+.markdown code {
+  @apply rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-800;
+}
+
+.markdown pre {
+  @apply overflow-x-auto rounded-xl border border-slate-200 bg-slate-900 p-4 text-slate-100;
+}
+
+.markdown ul {
+  @apply list-disc pl-5;
+}
+
+.markdown ol {
+  @apply list-decimal pl-5;
+}
+
+.float-soft {
+  animation: float-soft 3s ease-in-out infinite;
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}

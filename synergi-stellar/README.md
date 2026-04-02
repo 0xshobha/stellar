@@ -1,5 +1,8 @@
 # SynergiStellar
 
+> [!IMPORTANT]
+> If you are in the monorepo root, ensure you `cd synergi-stellar` before running any commands.
+
 SynergiStellar is a hackathon-ready autonomous agent economy on Stellar. It includes a manager agent, paid worker agents, x402-style payment flow, live SSE dashboard, Soroban contract scaffold, and MCP server tools.
 
 ## Project Structure
@@ -25,7 +28,7 @@ synergi-stellar/
 1. Generate and fund manager + 6 agent wallets:
 
 ```bash
-node scripts/setup-wallets.js
+npm run setup
 ```
 
 2. Copy generated wallet variables into backend env:
@@ -38,6 +41,7 @@ cp backend/.env.example backend/.env
 3. Add your Groq key in backend env (free-tier friendly):
 
 ```bash
+# In backend/.env
 GROQ_API_KEY=<your-groq-cloud-api-key>
 ```
 
@@ -424,3 +428,14 @@ Recommended real-mode env flags for demo-day fail-fast:
 Stellar explorer transaction pattern:
 
 - https://stellar.expert/explorer/testnet/tx/{hash}
+
+## Submission Checklist
+
+Before final submission, verify:
+
+- [ ] `npm run setup` completed successfully and `backend/.env.generated` exists.
+- [ ] `backend/.env` contains valid `MANAGER_SECRET_KEY` and worker public keys.
+- [ ] `GROQ_API_KEY` is set in `backend/.env`.
+- [ ] For real-mode demo: `X402_MODE=real`, `X402_ENFORCE=true`, and all wallets are funded.
+- [ ] Frontend `NEXT_PUBLIC_BACKEND_URL` points to the correct backend origin.
+- [ ] All components (`backend`, `frontend`, `mcp-server`) build without errors (`npm run build`).

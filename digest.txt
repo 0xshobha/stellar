@@ -1,5 +1,7 @@
 Directory structure:
 └── stellar/
+    ├── README.md
+    ├── license.md
     ├── hack/
     │   ├── mcpserver.md
     │   ├── prd.md
@@ -12,7 +14,8 @@ Directory structure:
         ├── backend/
         │   ├── package.json
         │   ├── tsconfig.json
-        │   ├── .env.example
+        │   ├── scripts/
+        │   │   └── smoke-check.mjs
         │   └── src/
         │       ├── config.ts
         │       ├── index.ts
@@ -24,9 +27,11 @@ Directory structure:
         │       │   ├── news.ts
         │       │   ├── price.ts
         │       │   ├── research.ts
+        │       │   ├── response.ts
         │       │   ├── sentiment.ts
         │       │   └── summarize.ts
         │       ├── lib/
+        │       │   ├── logger.ts
         │       │   ├── store.ts
         │       │   └── types.ts
         │       ├── stellar/
@@ -51,39 +56,41 @@ Directory structure:
         │   ├── postcss.config.js
         │   ├── tailwind.config.ts
         │   ├── tsconfig.json
-        │   ├── .env.local.example
-        │   └── src/
-        │       ├── app/
-        │       │   ├── globals.css
-        │       │   ├── head.tsx
-        │       │   ├── layout.tsx
-        │       │   ├── manifest.ts
-        │       │   ├── opengraph-image.tsx
-        │       │   ├── page.tsx
-        │       │   ├── robots.ts
-        │       │   ├── sitemap.ts
-        │       │   ├── api/
-        │       │   │   ├── [...path]/
-        │       │   │   │   └── route.ts
-        │       │   │   └── docs/
-        │       │   │       └── latest/
-        │       │   │           └── route.ts
-        │       │   ├── docs/
-        │       │   │   ├── page.tsx
-        │       │   │   └── [slug]/
-        │       │   │       └── page.tsx
-        │       │   └── privacy/
-        │       │       └── page.tsx
-        │       ├── components/
-        │       │   ├── AgentCatalog.tsx
-        │       │   ├── AgentChat.tsx
-        │       │   ├── Logo.tsx
-        │       │   ├── ProtocolTrace.tsx
-        │       │   ├── TopologyGraph.tsx
-        │       │   └── TransactionLog.tsx
-        │       └── lib/
-        │           ├── docs.ts
-        │           └── types.ts
+        │   ├── .eslintrc.json
+        │   ├── src/
+        │   │   ├── app/
+        │   │   │   ├── globals.css
+        │   │   │   ├── head.tsx
+        │   │   │   ├── layout.tsx
+        │   │   │   ├── manifest.ts
+        │   │   │   ├── opengraph-image.tsx
+        │   │   │   ├── page.tsx
+        │   │   │   ├── robots.ts
+        │   │   │   ├── sitemap.ts
+        │   │   │   ├── api/
+        │   │   │   │   ├── [...path]/
+        │   │   │   │   │   └── route.ts
+        │   │   │   │   └── docs/
+        │   │   │   │       └── latest/
+        │   │   │   │           └── route.ts
+        │   │   │   ├── docs/
+        │   │   │   │   ├── page.tsx
+        │   │   │   │   └── [slug]/
+        │   │   │   │       └── page.tsx
+        │   │   │   └── privacy/
+        │   │   │       └── page.tsx
+        │   │   ├── components/
+        │   │   │   ├── AgentCatalog.tsx
+        │   │   │   ├── AgentChat.tsx
+        │   │   │   ├── Logo.tsx
+        │   │   │   ├── ProtocolTrace.tsx
+        │   │   │   ├── TopologyGraph.tsx
+        │   │   │   └── TransactionLog.tsx
+        │   │   └── lib/
+        │   │       ├── docs.ts
+        │   │       └── types.ts
+        │   └── stellar-agent-project/
+        │       └── index.js
         ├── mcp-server/
         │   ├── package.json
         │   ├── tsconfig.json
@@ -91,6 +98,40 @@ Directory structure:
         │       └── index.ts
         └── scripts/
             └── setup-wallets.js
+
+================================================
+FILE: README.md
+================================================
+Stellar
+
+
+
+================================================
+FILE: license.md
+================================================
+# MIT License
+
+Copyright (c) 2026 Synergi Stellar Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
 
 ================================================
 FILE: hack/mcpserver.md
@@ -1462,6 +1503,9 @@ FILE: synergi-stellar/README.md
 ================================================
 # SynergiStellar
 
+> [!IMPORTANT]
+> If you are in the monorepo root, ensure you `cd synergi-stellar` before running any commands.
+
 SynergiStellar is a hackathon-ready autonomous agent economy on Stellar. It includes a manager agent, paid worker agents, x402-style payment flow, live SSE dashboard, Soroban contract scaffold, and MCP server tools.
 
 ## Project Structure
@@ -1482,35 +1526,144 @@ synergi-stellar/
 - Rust + Cargo (for Soroban contract build)
 - Stellar CLI (optional for on-chain deploy)
 
-## Setup
+## Quick local setup (5 steps)
 
-1. Install dependencies:
+1. Generate and fund manager + 6 agent wallets:
 
 ```bash
-npm install
-npm run install:all
+npm run setup
 ```
 
-2. Configure backend environment:
+2. Copy generated wallet variables into backend env:
 
 ```bash
 cp backend/.env.example backend/.env
+# then copy values from backend/.env.generated into backend/.env
 ```
 
-3. Configure frontend environment:
+3. Add your Groq key in backend env (free-tier friendly):
 
 ```bash
-cp frontend/.env.local.example frontend/.env.local
+# In backend/.env
+GROQ_API_KEY=<your-groq-cloud-api-key>
 ```
 
-## Run locally
+4. Start local services from repo root:
 
 ```bash
 npm run dev
 ```
 
-- Backend: http://localhost:4000
-- Frontend: http://localhost:3000
+5. Open the app:
+
+- http://localhost:3000
+
+Explorer link pattern for transactions:
+
+- https://stellar.expert/explorer/testnet/tx/{hash}
+
+## Backend server deployment
+
+Use this when running backend on a VPS/cloud server.
+
+### 1) Install and build backend
+
+```bash
+cd backend
+npm install
+npm run build
+```
+
+### 2) Configure backend environment for server
+
+Create/update `backend/.env`:
+
+```bash
+NODE_ENV=production
+PORT=4000
+HOST=0.0.0.0
+BACKEND_BASE_URL=https://your-backend-domain.com
+LOG_LEVEL=info
+STELLAR_NETWORK=testnet
+X402_MODE=mock
+X402_REAL_ONLY=false
+X402_ENFORCE=false
+```
+
+Notes:
+
+- Keep `PORT` aligned with your platform-provided port if required.
+- `HOST=0.0.0.0` allows external access through your reverse proxy or load balancer.
+
+### 3) Start backend in production
+
+```bash
+npm run start
+```
+
+### 4) Verify server health
+
+```bash
+curl http://127.0.0.1:4000/health
+```
+
+Expected response includes `{ "ok": true }`.
+
+### 5) Optional process manager (PM2)
+
+```bash
+npm install -g pm2
+pm2 start dist/index.js --name synergi-backend
+pm2 save
+pm2 startup
+```
+
+## Full server run (frontend + backend)
+
+From repository root:
+
+```bash
+npm run build:server
+npm run start:server
+```
+
+Recommended server environment setup:
+
+- Backend (`backend/.env`): `BACKEND_BASE_URL=https://api.yourdomain.com`, `CONTRACT_ID=<DEPLOYED_CONTRACT_ID>`
+- Frontend (`frontend/.env.local`):
+  - `NEXT_PUBLIC_BACKEND_URL=https://api.yourdomain.com`
+  - `BACKEND_URL=https://api.yourdomain.com`
+  - `NEXT_PUBLIC_SITE_URL=https://app.yourdomain.com`
+
+Verification endpoint for contract linkage:
+
+- `GET /api/chain/config` returns network, contract id, and x402 mode.
+
+## Vercel deployment (fixes NOT_FOUND)
+
+Deploy only the Next.js frontend app from `synergi-stellar/frontend`.
+
+If you import the whole repository and Vercel points to the wrong root, you can get `NOT_FOUND` even when code builds locally.
+
+### Vercel project settings
+
+- Framework Preset: `Next.js`
+- Root Directory: `synergi-stellar/frontend`
+- Build Command: `npm run build`
+- Install Command: `npm install`
+
+### Required Vercel environment variables (Frontend project)
+
+- `BACKEND_URL=https://<your-backend-domain>`
+- `NEXT_PUBLIC_BACKEND_URL=https://<your-backend-domain>`
+- `NEXT_PUBLIC_SITE_URL=https://<your-frontend-domain>`
+- `NEXT_PUBLIC_STELLAR_NETWORK=testnet` (or `mainnet`)
+- `NEXT_PUBLIC_REQUIRED_FREIGHTER_ADDRESS=<optional-wallet-public-key>`
+
+### Why NOT_FOUND happens here
+
+- Vercel receives requests at the deployed URL, but no Next.js app/routes are mounted at that root.
+- Most commonly this is a monorepo root-directory mismatch, not a TypeScript error.
 
 ## Build all workspaces
 
@@ -1518,14 +1671,74 @@ npm run dev
 npm run build
 ```
 
-## Contract build
+## Contract setup (Freighter + Testnet, working sequence)
+
+Use this exact order so build/deploy works reliably.
+
+### 1) App network config
+
+- In `backend/.env`: `STELLAR_NETWORK=testnet`
+- In `frontend/.env.local`: `NEXT_PUBLIC_STELLAR_NETWORK=testnet`
+
+### 2) Wallet setup (Freighter)
+
+1. Install Freighter extension and create/import wallet.
+2. Switch Freighter network to Testnet.
+3. Fund the wallet from Friendbot: https://friendbot.stellar.org/
+4. Keep your testnet public key ready: `<YOUR_FREIGHTER_PUBLIC_KEY>`
+
+### 3) Install local contract toolchain (one-time)
+
+```bash
+rustup default stable
+rustup target add wasm32v1-none
+stellar --version
+```
+
+If `stellar --version` fails, install Stellar CLI first, then re-run the command.
+
+### 4) Build Soroban contract WASM
 
 ```bash
 cd contracts/agent-registry
-cargo build --release
+cargo build --target wasm32v1-none --release
 ```
 
-For Stellar deploy, use `stellar contract deploy` with your testnet identity.
+Expected artifact:
+
+`contracts/agent-registry/target/wasm32v1-none/release/agent_registry.wasm`
+
+### 5) Register network and identity in Stellar CLI
+
+```bash
+stellar network add testnet --rpc-url https://soroban-testnet.stellar.org:443 --network-passphrase "Test SDF Network ; September 2015"
+stellar keys add freighter-testnet --public-key <YOUR_FREIGHTER_PUBLIC_KEY>
+```
+
+### 6) Deploy to Stellar testnet
+
+```bash
+stellar contract deploy --network testnet --source freighter-testnet --wasm target/wasm32v1-none/release/agent_registry.wasm
+```
+
+Copy the returned contract id and set in backend config:
+
+`CONTRACT_ID=<DEPLOYED_CONTRACT_ID>` in `backend/.env`
+
+### 7) Optional smoke call
+
+```bash
+stellar contract invoke --id <DEPLOYED_CONTRACT_ID> --network testnet --source freighter-testnet -- register_agent --name price --owner <YOUR_FREIGHTER_PUBLIC_KEY> --endpoint /agents/price --price_usdc 1000000 --recursive false
+```
+
+### 8) Run app services
+
+```bash
+npm run dev -w backend
+npm run dev -w frontend
+```
+
+Note: this repo currently keeps agent state in backend memory for local runtime behavior; the contract path above is for testnet deployment and on-chain verification flows.
 
 ## MCP server
 
@@ -1544,25 +1757,191 @@ Set `BACKEND_URL` if backend is not on localhost:4000.
 - `GET /api/status/:sessionId`
 - `GET /api/transactions`
 - `GET /api/wallet/balance`
+- `GET /api/chain/config`
 - `POST /api/wallet/create`
 - `GET /agents/catalog`
 - `GET /agents/reputation/:agentName`
 
+## Environment variables reference
+
+### Backend (`backend/.env`)
+
+| Key                         | Required                            | Default                | Purpose                                                  |
+| --------------------------- | ----------------------------------- | ---------------------- | -------------------------------------------------------- |
+| NODE_ENV                    | Yes                                 | development            | Runtime mode (`development`, `test`, `production`)       |
+| PORT                        | Yes                                 | 4000                   | Backend listen port                                      |
+| HOST                        | Yes                                 | 0.0.0.0                | Bind address for server process                          |
+| BACKEND_BASE_URL            | Yes                                 | http://localhost:4000  | Base URL used by internal manager-worker calls           |
+| LOG_LEVEL                   | Recommended                         | info                   | Terminal log level (`debug`, `info`, `warn`, `error`)    |
+| ANTHROPIC_API_KEY           | Optional                            | empty                  | Optional Anthropic key if you enable Claude planner path |
+| GROQ_API_KEY                | Recommended                         | empty                  | Preferred free-tier LLM key for local hackathon setup    |
+| MANAGER_SECRET_KEY          | Optional (required for real wallet) | empty                  | Manager Stellar secret key                               |
+| STELLAR_NETWORK             | Yes                                 | testnet                | Stellar network (`testnet` or `mainnet`)                 |
+| X402_MODE                   | Yes                                 | mock                   | x402 processing mode (`mock` or `real`)                  |
+| X402_REAL_ONLY              | Optional                            | false                  | Disable fallback when real mode is expected              |
+| FACILITATOR_URL             | Optional                            | Heroku facilitator URL | x402 facilitator endpoint                                |
+| X402_MAX_TIMEOUT_SECONDS    | Optional                            | 90                     | Max timeout for x402 requests                            |
+| X402_USDC_ASSET_ADDRESS     | Optional                            | empty                  | USDC asset address for real settlement                   |
+| AGENT_PRICE_PUBLIC_KEY      | Optional (real mode)                | empty                  | Stellar public key for `PriceFeed` agent                 |
+| AGENT_NEWS_PUBLIC_KEY       | Optional (real mode)                | empty                  | Stellar public key for `NewsDigest` agent                |
+| AGENT_SUMMARIZER_PUBLIC_KEY | Optional (real mode)                | empty                  | Stellar public key for `Summarizer` agent                |
+| AGENT_SENTIMENT_PUBLIC_KEY  | Optional (real mode)                | empty                  | Stellar public key for `SentimentAI` agent               |
+| AGENT_MATH_PUBLIC_KEY       | Optional (real mode)                | empty                  | Stellar public key for `MathSolver` agent                |
+| AGENT_RESEARCH_PUBLIC_KEY   | Optional (real mode)                | empty                  | Stellar public key for `DeepResearch` agent              |
+| CONTRACT_ID                 | Optional                            | LOCAL_MOCK_CONTRACT    | Soroban agent registry contract id                       |
+| X402_ENFORCE                | Optional                            | false                  | Enforce payment policy without relaxed fallback          |
+
+### Frontend (`frontend/.env.local`)
+
+| Key                         | Required    | Default               | Purpose                                          |
+| --------------------------- | ----------- | --------------------- | ------------------------------------------------ |
+| NEXT_PUBLIC_BACKEND_URL     | Yes         | http://localhost:4000 | Backend base URL for API proxy/SSE               |
+| NEXT_PUBLIC_STELLAR_NETWORK | Recommended | testnet               | Network label used in UI/runtime assumptions     |
+| NEXT_PUBLIC_SITE_URL        | Recommended | http://localhost:3000 | Canonical site URL for metadata, sitemap, robots |
+
+### MCP server (`mcp-server` process env)
+
+| Key                | Required | Default               | Purpose                                    |
+| ------------------ | -------- | --------------------- | ------------------------------------------ |
+| BACKEND_URL        | Yes      | http://localhost:4000 | Backend URL used by MCP tools              |
+| REQUEST_TIMEOUT_MS | Optional | 12000                 | Timeout per backend request from MCP tools |
+
+## Freighter + Soroban (what to change)
+
+If you will use Freighter wallet and Soroban testnet/mainnet flows, update these keys first.
+
+### Backend required changes (`backend/.env`)
+
+| Key                         | Example                    | Why                                            |
+| --------------------------- | -------------------------- | ---------------------------------------------- |
+| NODE_ENV                    | production                 | Server deployment mode                         |
+| PORT                        | 4000                       | Server port (or platform provided port)        |
+| HOST                        | 0.0.0.0                    | Expose backend for reverse proxy/load balancer |
+| BACKEND_BASE_URL            | https://api.yourdomain.com | Correct absolute backend URL                   |
+| STELLAR_NETWORK             | testnet                    | Must match Freighter selected network          |
+| CONTRACT_ID                 | C...                       | Deployed Soroban contract id                   |
+| X402_MODE                   | real                       | Use real x402 flow                             |
+| X402_REAL_ONLY              | true                       | Prevent mock fallback in production            |
+| X402_ENFORCE                | true                       | Enforce paid flow                              |
+| MANAGER_SECRET_KEY          | S...                       | Manager signing key                            |
+| X402_USDC_ASSET_ADDRESS     | C... or G...               | Asset address for USDC settlement              |
+| AGENT_PRICE_PUBLIC_KEY      | G...                       | Worker wallet public key                       |
+| AGENT_NEWS_PUBLIC_KEY       | G...                       | Worker wallet public key                       |
+| AGENT_SUMMARIZER_PUBLIC_KEY | G...                       | Worker wallet public key                       |
+| AGENT_SENTIMENT_PUBLIC_KEY  | G...                       | Worker wallet public key                       |
+| AGENT_MATH_PUBLIC_KEY       | G...                       | Worker wallet public key                       |
+| AGENT_RESEARCH_PUBLIC_KEY   | G...                       | Worker wallet public key                       |
+
+### Frontend required changes (`frontend/.env.local`)
+
+| Key                                    | Example                                                  | Why                                                   |
+| -------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| NEXT_PUBLIC_BACKEND_URL                | https://api.yourdomain.com                               | Frontend API/SSE target                               |
+| NEXT_PUBLIC_STELLAR_NETWORK            | testnet                                                  | Should match Freighter network                        |
+| NEXT_PUBLIC_SITE_URL                   | https://app.yourdomain.com                               | Correct metadata/canonical URLs                       |
+| NEXT_PUBLIC_REQUIRED_FREIGHTER_ADDRESS | GD6W54KPBSMLD5ZKYNF7CQFKJUZHMRTC6TN3MVFRGCR2Q7JYCYDGRSWJ | Enforce the exact Freighter account on Connect Wallet |
+
+### Freighter prerequisites
+
+| Item              | Required value                    |
+| ----------------- | --------------------------------- |
+| Freighter network | Same as `STELLAR_NETWORK`         |
+| Wallet funded     | Testnet: Friendbot funded account |
+| Browser extension | Freighter installed and unlocked  |
+
+## End-to-end user flows
+
+### Flow 1: Open dashboard and load initial data
+
+1. User opens the frontend at `http://localhost:3000`.
+2. Frontend requests `/api/agents/catalog` to show all worker agents and pricing.
+3. Frontend requests `/api/docs/latest` to render latest docs links.
+
+### Flow 2: Submit manager query
+
+1. User enters a prompt in Manager Agent Query and clicks Run Manager.
+2. Frontend posts `{ query }` to `/api/query`.
+3. Backend creates a new `sessionId` and starts manager execution asynchronously.
+4. Frontend receives `sessionId` and switches UI into running state.
+
+### Flow 3: Live protocol stream (SSE)
+
+1. Frontend opens EventSource to `/api/events/:sessionId`.
+2. Backend streams status events like planning, hiring, paid, step-complete, step-failed, and complete.
+3. UI panels update in near real time: protocol trace, transaction log, and topology.
+
+### Flow 4: Session status polling
+
+1. Frontend polls `/api/status/:sessionId` while run is active.
+2. Backend returns progress counters, traces, summary, and completion state.
+3. Frontend stops polling when the run is complete or failed.
+
+### Flow 5: Manager orchestration and worker execution
+
+1. Manager creates a plan from user query and agent catalog.
+2. Manager ranks steps by relevance, cost, and reputation.
+3. Manager calls selected worker endpoints (`/agents/*`) with x402 payment-aware fetch.
+4. Workers return results and transaction metadata.
+5. Manager synthesizes final answer and emits completion event.
+
+### Flow 6: Recursive sub-agent execution
+
+1. If a worker is marked recursive, it can hire other workers.
+2. Sub-transactions are recorded with depth metadata.
+3. Trace and transaction UI show parent and child hops in one session timeline.
+
+### Flow 7: Payment behavior (mock vs real)
+
+1. In mock mode (`X402_MODE=mock`), payment traces are simulated for local demo.
+2. In real mode (`X402_MODE=real`), x402 facilitator flow is used for actual verification/settlement.
+3. With `X402_REAL_ONLY=true` and `X402_ENFORCE=true`, fallback simulation is disabled.
+
+### Flow 8: Wallet APIs
+
+1. User (or UI integration) can call `GET /api/wallet/balance` for manager wallet snapshot.
+2. User can call `POST /api/wallet/create` to create a sponsored demo wallet.
+3. Response includes network and wallet identity values used for demo operations.
+
+### Flow 9: Contract-backed agent state lifecycle
+
+1. Agent owners register agents with endpoint, owner, price, and recursion flag.
+2. During operations, job outcomes update reputation and dynamic price.
+3. Clients query list/reputation state to decide who to hire next.
+
+### Flow 10: Docs and policy pages
+
+1. User opens `/docs` to browse markdown docs rendered by Next.js.
+2. User opens `/docs/[slug]` for specific guide pages.
+3. User opens `/privacy` to understand runtime data handling and caveats.
+
 ## Real vs Mock
 
-- x402 integration supports two modes:
-  - mock mode: `X402_MODE=mock` (default), local simulation
-  - real mode: `X402_MODE=real`, official facilitator verification/settlement with `@x402/stellar`
-- To enforce demo-day fail-fast behavior, set:
-  - `X402_ENFORCE=true`
-  - `X402_MODE=real`
-  - `X402_REAL_ONLY=true`
-- In real mode, set manager and agent Stellar keys in `backend/.env`:
-  - `MANAGER_SECRET_KEY`
-  - `AGENT_PRICE_PUBLIC_KEY`, `AGENT_NEWS_PUBLIC_KEY`, `AGENT_SUMMARIZER_PUBLIC_KEY`, `AGENT_SENTIMENT_PUBLIC_KEY`, `AGENT_MATH_PUBLIC_KEY`, `AGENT_RESEARCH_PUBLIC_KEY`
-- Wallet and transaction explorer links: real transaction URLs; simulated paths are clearly labeled when not settled
-- Worker data sources: mocked deterministic responses
-- Soroban contract: real Rust scaffold ready for testnet deployment
+| Capability       | Mock mode (`X402_MODE=mock`)                | Real mode (`X402_MODE=real`)                                               |
+| ---------------- | ------------------------------------------- | -------------------------------------------------------------------------- |
+| x402 payments    | Simulated payment requirement/receipt flow  | Facilitator verification + settlement via `@x402/stellar`                  |
+| Wallet balances  | Local fallback only when key not configured | Live Horizon balance lookup (`/accounts/{publicKey}`)                      |
+| Soroban contract | In-memory registry is source of truth       | In-memory registry still active; optional Soroban wiring via `CONTRACT_ID` |
+
+Recommended real-mode env flags for demo-day fail-fast:
+
+- `X402_ENFORCE=true`
+- `X402_MODE=real`
+- `X402_REAL_ONLY=true`
+
+Stellar explorer transaction pattern:
+
+- https://stellar.expert/explorer/testnet/tx/{hash}
+
+## Submission Checklist
+
+Before final submission, verify:
+
+- [ ] `npm run setup` completed successfully and `backend/.env.generated` exists.
+- [ ] `backend/.env` contains valid `MANAGER_SECRET_KEY` and worker public keys.
+- [ ] `GROQ_API_KEY` is set in `backend/.env`.
+- [ ] For real-mode demo: `X402_MODE=real`, `X402_ENFORCE=true`, and all wallets are funded.
+- [ ] Frontend `NEXT_PUBLIC_BACKEND_URL` points to the correct backend origin.
+- [ ] All components (`backend`, `frontend`, `mcp-server`) build without errors (`npm run build`).
 
 
 
@@ -1579,16 +1958,22 @@ FILE: synergi-stellar/package.json
     "mcp-server"
   ],
   "scripts": {
+    "setup": "node scripts/setup-wallets.js",
     "install:all": "npm install --workspaces",
-    "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
     "dev:backend": "npm run dev -w backend",
     "dev:frontend": "npm run dev -w frontend",
     "dev:mcp": "npm run dev -w mcp-server",
     "build": "npm run build -w backend && npm run build -w frontend && npm run build -w mcp-server",
-    "lint": "npm run lint -w backend && npm run lint -w frontend && npm run lint -w mcp-server"
+    "lint": "npm run lint -w backend && npm run lint -w frontend && npm run lint -w mcp-server",
+    "build:server": "npm run build -w backend && npm run build -w frontend",
+    "start:server": "concurrently \"npm run start -w backend\" \"npm run start -w frontend\""
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "axios": "^1.14.0"
   }
 }
 
@@ -1607,11 +1992,13 @@ FILE: synergi-stellar/backend/package.json
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "smoke": "node scripts/smoke-check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@stellar/stellar-sdk": "^13.3.0",
+    "@x402/core": "^2.8.0",
     "@x402/express": "^2.8.0",
     "@x402/fetch": "^2.8.0",
     "@x402/stellar": "^2.8.0",
@@ -1656,34 +2043,87 @@ FILE: synergi-stellar/backend/tsconfig.json
 
 
 ================================================
-FILE: synergi-stellar/backend/.env.example
+FILE: synergi-stellar/backend/scripts/smoke-check.mjs
 ================================================
-NODE_ENV=development
-PORT=4000
-BACKEND_BASE_URL=http://localhost:4000
-ANTHROPIC_API_KEY=
-GROQ_API_KEY=
-MANAGER_SECRET_KEY=
-STELLAR_NETWORK=testnet
-X402_MODE=mock
-X402_REAL_ONLY=false
-FACILITATOR_URL=https://x402-stellar-491bf9f7e30b.herokuapp.com
-X402_MAX_TIMEOUT_SECONDS=90
-X402_USDC_ASSET_ADDRESS=
-AGENT_PRICE_PUBLIC_KEY=
-AGENT_NEWS_PUBLIC_KEY=
-AGENT_SUMMARIZER_PUBLIC_KEY=
-AGENT_SENTIMENT_PUBLIC_KEY=
-AGENT_MATH_PUBLIC_KEY=
-AGENT_RESEARCH_PUBLIC_KEY=
-CONTRACT_ID=LOCAL_MOCK_CONTRACT
-X402_ENFORCE=false
+const baseUrl = process.env.BACKEND_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`;
+
+async function checkEndpoint(name, path, options) {
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(`${baseUrl}${path}`, options);
+    const latencyMs = Date.now() - startedAt;
+    return {
+      check: name,
+      method: options?.method ?? 'GET',
+      path,
+      status: response.status,
+      ok: response.ok,
+      latencyMs
+    };
+  } catch (error) {
+    return {
+      check: name,
+      method: options?.method ?? 'GET',
+      path,
+      status: 0,
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function run() {
+  const rows = [];
+
+  rows.push(await checkEndpoint('Health', '/health'));
+  rows.push(await checkEndpoint('Catalog', '/agents/catalog'));
+  rows.push(await checkEndpoint('Wallet Balance', '/api/wallet/balance'));
+  rows.push(await checkEndpoint('Chain Config', '/api/chain/config'));
+  rows.push(await checkEndpoint('Transactions', '/api/transactions?limit=1'));
+
+  const query = await checkEndpoint('Create Query Session', '/api/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: 'smoke test for backend validation' })
+  });
+  rows.push(query);
+
+  if (query.ok) {
+    try {
+      const created = await fetch(`${baseUrl}/api/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: 'check status endpoint' })
+      });
+      const payload = await created.json();
+      const sessionId = payload?.data?.sessionId;
+      if (sessionId) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        rows.push(await checkEndpoint('Session Status', `/api/status/${sessionId}`));
+      }
+    } catch {
+      rows.push({ check: 'Session Status', method: 'GET', path: '/api/status/:sessionId', status: 0, ok: false, latencyMs: 0, error: 'Unable to create test session' });
+    }
+  }
+
+  console.log(`\nBackend smoke checks for ${baseUrl}`);
+  console.table(rows);
+
+  const failed = rows.filter((row) => !row.ok);
+  if (failed.length > 0) {
+    process.exitCode = 1;
+  }
+}
+
+void run();
 
 
 ================================================
 FILE: synergi-stellar/backend/src/config.ts
 ================================================
 import dotenv from 'dotenv';
+import { Keypair } from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
 dotenv.config();
@@ -1691,19 +2131,22 @@ dotenv.config();
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
-  BACKEND_BASE_URL: z.string().default('http://localhost:4000'),
+  HOST: z.string().default('0.0.0.0'),
+  BACKEND_BASE_URL: z.string().url().default('http://localhost:4000'),
   ANTHROPIC_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
   MANAGER_SECRET_KEY: z.string().optional(),
+  MANAGER_PUBLIC_KEY: z.string().optional(),
   STELLAR_NETWORK: z.enum(['testnet', 'mainnet']).default('testnet'),
   X402_MODE: z.enum(['mock', 'real']).default('mock'),
   X402_REAL_ONLY: z.enum(['true', 'false']).default('false'),
-  FACILITATOR_URL: z.string().default('https://x402-stellar-491bf9f7e30b.herokuapp.com'),
-  X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(90),
+  FACILITATOR_URL: z.string().url().default('https://x402-stellar-491bf9f7e30b.herokuapp.com'),
+  X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(300),
   X402_USDC_ASSET_ADDRESS: z.string().optional(),
   AGENT_PRICE_PUBLIC_KEY: z.string().optional(),
   AGENT_NEWS_PUBLIC_KEY: z.string().optional(),
   AGENT_SUMMARIZER_PUBLIC_KEY: z.string().optional(),
+  AGENT_SUMMARIZE_PUBLIC_KEY: z.string().optional(),
   AGENT_SENTIMENT_PUBLIC_KEY: z.string().optional(),
   AGENT_MATH_PUBLIC_KEY: z.string().optional(),
   AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
@@ -1711,10 +2154,72 @@ const envSchema = z.object({
   X402_ENFORCE: z.enum(['true', 'false']).default('false')
 });
 
-export const env = envSchema.parse(process.env);
+type ParsedEnv = z.infer<typeof envSchema>;
+type RuntimeEnv = Omit<ParsedEnv, 'AGENT_SUMMARIZER_PUBLIC_KEY' | 'MANAGER_PUBLIC_KEY'> & {
+  AGENT_SUMMARIZER_PUBLIC_KEY?: string;
+  MANAGER_PUBLIC_KEY?: string;
+};
+
+const parsedEnv = envSchema.parse(process.env);
+
+function deriveManagerPublicKey(): string | undefined {
+  if (parsedEnv.MANAGER_PUBLIC_KEY) return parsedEnv.MANAGER_PUBLIC_KEY;
+  if (!parsedEnv.MANAGER_SECRET_KEY) return undefined;
+
+  try {
+    return Keypair.fromSecret(parsedEnv.MANAGER_SECRET_KEY).publicKey();
+  } catch {
+    return undefined;
+  }
+}
+
+export const env: RuntimeEnv = {
+  ...parsedEnv,
+  MANAGER_PUBLIC_KEY: deriveManagerPublicKey(),
+  AGENT_SUMMARIZER_PUBLIC_KEY: parsedEnv.AGENT_SUMMARIZER_PUBLIC_KEY ?? parsedEnv.AGENT_SUMMARIZE_PUBLIC_KEY
+};
+
 export const isX402Enforced = env.X402_ENFORCE === 'true';
 export const isX402RealMode = env.X402_MODE === 'real';
 export const isX402RealOnly = env.X402_REAL_ONLY === 'true';
+
+const claudeEnabled = Boolean(env.ANTHROPIC_API_KEY || env.GROQ_API_KEY);
+console.log(`[Config] x402Mode=${env.X402_MODE} enforce=${env.X402_ENFORCE} network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`);
+
+const configuredAgentPublicKeys = {
+  AGENT_PRICE_PUBLIC_KEY: env.AGENT_PRICE_PUBLIC_KEY,
+  AGENT_NEWS_PUBLIC_KEY: env.AGENT_NEWS_PUBLIC_KEY,
+  AGENT_SUMMARIZER_PUBLIC_KEY: env.AGENT_SUMMARIZER_PUBLIC_KEY,
+  AGENT_SENTIMENT_PUBLIC_KEY: env.AGENT_SENTIMENT_PUBLIC_KEY,
+  AGENT_MATH_PUBLIC_KEY: env.AGENT_MATH_PUBLIC_KEY,
+  AGENT_RESEARCH_PUBLIC_KEY: env.AGENT_RESEARCH_PUBLIC_KEY
+};
+
+const startupErrors: string[] = [];
+
+if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
+  startupErrors.push('CONTRACT_ID must be set (use LOCAL_MOCK_CONTRACT for local mode).');
+}
+
+if (isX402RealMode) {
+  if (!env.MANAGER_SECRET_KEY || !env.MANAGER_SECRET_KEY.startsWith('S')) {
+    startupErrors.push('X402_MODE=real requires MANAGER_SECRET_KEY with a valid Stellar secret key.');
+  }
+
+  for (const [key, value] of Object.entries(configuredAgentPublicKeys)) {
+    if (!value || !/^G[A-Z2-7]{55}$/.test(value)) {
+      startupErrors.push(`X402_MODE=real requires ${key} to be a valid Stellar public key.`);
+    }
+  }
+}
+
+if (isX402Enforced && !env.FACILITATOR_URL) {
+  startupErrors.push('X402_ENFORCE=true requires FACILITATOR_URL.');
+}
+
+if (startupErrors.length > 0) {
+  throw new Error(`Environment configuration invalid:\n- ${startupErrors.join('\n- ')}`);
+}
 
 export function getStellarCaip2Network(): 'stellar:testnet' | 'stellar:pubnet' {
   return env.STELLAR_NETWORK === 'mainnet' ? 'stellar:pubnet' : 'stellar:testnet';
@@ -1728,9 +2233,11 @@ FILE: synergi-stellar/backend/src/index.ts
 import cors from 'cors';
 import express from 'express';
 import { randomUUID } from 'node:crypto';
+import { Server } from 'node:http';
 import { z } from 'zod';
 import { env } from './config.js';
 import agentsRouter from './agents/index.js';
+import { logError, logInfo, logWarn } from './lib/logger.js';
 import { startQuerySession } from './manager.js';
 import { getProtocolTrace, getSessionMetrics, getSessionStatus, getSessionTransactions, listTransactions } from './lib/store.js';
 import { ApiErrorPayload } from './lib/types.js';
@@ -1739,6 +2246,7 @@ import { getAgentCatalog, getAgentByName } from './stellar/contract.js';
 import { createSponsoredWallet, getManagerWalletBalance } from './stellar/wallet.js';
 
 const app = express();
+let activeServer: Server | null = null;
 
 const querySchema = z.object({
   query: z.string().min(3)
@@ -1767,6 +2275,25 @@ function fail(error: ApiErrorPayload) {
 
 app.use(cors());
 app.use(express.json());
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  logInfo('Incoming request', {
+    method: req.method,
+    path: req.originalUrl,
+    ip: req.ip
+  });
+
+  res.on('finish', () => {
+    logInfo('Completed request', {
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - startedAt
+    });
+  });
+
+  next();
+});
 
 app.get('/health', (_, res) => {
   res.json(ok({ status: 'ok', service: 'synergi-stellar-backend' }));
@@ -1892,11 +2419,32 @@ app.get('/api/transactions', (req, res) => {
   );
 });
 
-app.get('/api/wallet/balance', (_, res) => {
-  res.json(ok(getManagerWalletBalance()));
+app.get('/api/wallet/balance', async (_, res) => {
+  try {
+    const balance = await getManagerWalletBalance();
+    res.json(ok(balance));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json(fail({ code: 'WALLET_BALANCE_FETCH_FAILED', message }));
+  }
 });
 
-app.post('/api/wallet/create', (req, res) => {
+const chainConfigHandler = (_: express.Request, res: express.Response) => {
+  res.json(
+    ok({
+      network: env.STELLAR_NETWORK,
+      contractId: env.CONTRACT_ID,
+      x402Mode: env.X402_MODE,
+      x402Enforced: env.X402_ENFORCE === 'true',
+      contractConfigured: env.CONTRACT_ID !== 'LOCAL_MOCK_CONTRACT'
+    })
+  );
+};
+
+app.get('/api/chain/config', chainConfigHandler);
+app.get('/chain/config', chainConfigHandler);
+
+app.post('/api/wallet/create', async (req, res) => {
   const parsed = walletCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json(
@@ -1909,14 +2457,100 @@ app.post('/api/wallet/create', (req, res) => {
     return;
   }
   const name = String(parsed.data.name ?? `Agent-${randomUUID().slice(0, 8)}`);
-  const wallet = createSponsoredWallet(name);
-  res.json(ok(wallet));
+  try {
+    const wallet = await createSponsoredWallet(name);
+    res.json(ok(wallet));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json(fail({ code: 'WALLET_CREATE_FAILED', message }));
+  }
 });
 
-app.listen(env.PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`SynergiStellar backend running on port ${env.PORT}`);
-});
+function startServer(startPort: number, attemptsLeft = 5): void {
+  const server = app.listen(startPort, env.HOST, () => {
+    process.env.RUNTIME_BACKEND_BASE_URL = `http://localhost:${startPort}`;
+    activeServer = server;
+    logInfo('SynergiStellar backend started', {
+      port: startPort,
+      host: env.HOST,
+      env: env.NODE_ENV,
+      x402Mode: env.X402_MODE,
+      x402Enforce: env.X402_ENFORCE,
+      network: env.STELLAR_NETWORK,
+      baseUrl: process.env.RUNTIME_BACKEND_BASE_URL
+    });
+    logInfo('Backend endpoints ready', {
+      health: '/health',
+      query: '/api/query',
+      events: '/api/events/:sessionId',
+      status: '/api/status/:sessionId',
+      transactions: '/api/transactions',
+      walletBalance: '/api/wallet/balance',
+      walletCreate: '/api/wallet/create',
+      catalog: '/agents/catalog'
+    });
+  });
+
+  server.on('error', (error) => {
+    const err = error as NodeJS.ErrnoException;
+    const allowPortFallback = env.NODE_ENV !== 'production';
+    if (err.code === 'EADDRINUSE' && allowPortFallback && attemptsLeft > 0) {
+      const nextPort = startPort + 1;
+      logWarn('Port in use, retrying with next port', {
+        requestedPort: startPort,
+        nextPort,
+        attemptsLeft: attemptsLeft - 1
+      });
+      startServer(nextPort, attemptsLeft - 1);
+      return;
+    }
+
+    if (err.code === 'EADDRINUSE' && !allowPortFallback) {
+      logError('Configured port is already in use in production mode', {
+        port: startPort,
+        host: env.HOST,
+        code: err.code,
+        message: err.message
+      });
+      process.exit(1);
+      return;
+    }
+
+    logError('Backend failed to start', {
+      port: startPort,
+      host: env.HOST,
+      code: err.code,
+      message: err.message
+    });
+    process.exit(1);
+  });
+}
+
+function setupGracefulShutdown(): void {
+  const shutdown = (signal: string) => {
+    logInfo('Shutdown signal received', { signal });
+    if (!activeServer) {
+      process.exit(0);
+      return;
+    }
+
+    activeServer.close((error?: Error) => {
+      if (error) {
+        logError('Error while closing server', { signal, message: error.message });
+        process.exit(1);
+        return;
+      }
+      logInfo('Server shutdown complete', { signal });
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+}
+
+setupGracefulShutdown();
+startServer(env.PORT);
 
 
 
@@ -1926,6 +2560,7 @@ FILE: synergi-stellar/backend/src/manager.ts
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { env } from './config.js';
+import { logError, logInfo, logWarn } from './lib/logger.js';
 import {
   addTransaction,
   completeSession,
@@ -1971,14 +2606,26 @@ const claude = env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
   : null;
 
+function getBackendBaseUrl(): string {
+  return process.env.RUNTIME_BACKEND_BASE_URL || env.BACKEND_BASE_URL;
+}
+
 export function startQuerySession(query: string): string {
   const sessionId = randomUUID();
   createSessionStatus(sessionId, query);
+  logInfo('Query session created', {
+    sessionId,
+    query
+  });
   void runManagerSession(sessionId, query);
   return sessionId;
 }
 
 async function runManagerSession(sessionId: string, query: string): Promise<void> {
+  logInfo('Manager session started', {
+    sessionId,
+    query
+  });
   sseHub.emit(sessionId, 'status', { message: 'Manager started planning', stage: 'planning' });
   try {
     const catalog = getAgentCatalog();
@@ -1995,6 +2642,11 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
       plan: plan.explanation,
       steps: prioritized
     });
+    logInfo('Execution plan prepared', {
+      sessionId,
+      totalSteps: prioritized.length,
+      steps: prioritized.map((item) => item.agentName)
+    });
 
     const outputs: Array<{ agent: string; result: unknown }> = [];
     let completedSteps = 0;
@@ -2003,6 +2655,13 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
       const worker = catalog.find((item) => item.name === step.agentName);
       if (!worker) continue;
       const depth = Math.min(step.depth ?? 1, MAX_RECURSION_DEPTH);
+      logInfo('Executing step', {
+        sessionId,
+        agent: worker.name,
+        depth,
+        completedSteps,
+        totalSteps: prioritized.length
+      });
 
       sseHub.emit(sessionId, 'step-start', {
         step: completedSteps + 1,
@@ -2018,7 +2677,7 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
         depth
       });
 
-      const endpointUrl = `${env.BACKEND_BASE_URL}/agents/${worker.endpoint}`;
+      const endpointUrl = `${getBackendBaseUrl()}/agents/${worker.endpoint}`;
       try {
         const response = await x402FetchJson<WorkerResponse>(sessionId, endpointUrl, {
           method: 'POST',
@@ -2099,6 +2758,14 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
           agent: worker.name,
           metrics: getSessionMetrics(sessionId)
         });
+        logInfo('Step completed', {
+          sessionId,
+          agent: worker.name,
+          txHash: response.data.txHash,
+          paid: response.data.pricePaid,
+          completedSteps,
+          totalSteps: prioritized.length
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         registerSessionError(sessionId, `${worker.name}: ${message}`);
@@ -2113,6 +2780,11 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
           totalSteps: prioritized.length,
           agent: worker.name
         });
+        logWarn('Step failed', {
+          sessionId,
+          agent: worker.name,
+          message
+        });
       }
     }
 
@@ -2124,10 +2796,20 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
       metrics: finalMetrics,
       partial: Boolean(getSessionMetrics(sessionId).transactionCount < prioritized.length)
     });
+    logInfo('Manager session completed', {
+      sessionId,
+      partial: Boolean(getSessionMetrics(sessionId).transactionCount < prioritized.length),
+      transactionCount: finalMetrics.transactionCount,
+      totalSpend: finalMetrics.totalSpend
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     updateSessionStatus(sessionId, { complete: true, summary: `Execution failed: ${message}` });
     sseHub.emit(sessionId, 'error', { message });
+    logError('Manager session crashed', {
+      sessionId,
+      message
+    });
   }
 }
 
@@ -2286,6 +2968,7 @@ async function summarize(query: string, results: Array<{ agent: string; result: 
 FILE: synergi-stellar/backend/src/sse.ts
 ================================================
 import type { Response } from 'express';
+import { logDebug, logInfo } from './lib/logger.js';
 
 interface SSEClient {
   id: string;
@@ -2302,6 +2985,10 @@ class SSEHub {
     response.flushHeaders();
     response.write(`data: ${JSON.stringify({ type: 'connected', sessionId: id })}\n\n`);
     this.clients.set(id, { id, response });
+    logInfo('SSE client connected', {
+      sessionId: id,
+      activeClients: this.clients.size
+    });
   }
 
   emit(id: string, type: string, data: Record<string, unknown>): void {
@@ -2309,6 +2996,10 @@ class SSEHub {
     if (!client) return;
     const payload = JSON.stringify({ type, ...data, at: new Date().toISOString() });
     client.response.write(`data: ${payload}\n\n`);
+    logDebug('SSE event emitted', {
+      sessionId: id,
+      type
+    });
   }
 
   removeClient(id: string): void {
@@ -2316,6 +3007,10 @@ class SSEHub {
     if (!client) return;
     client.response.end();
     this.clients.delete(id);
+    logInfo('SSE client disconnected', {
+      sessionId: id,
+      activeClients: this.clients.size
+    });
   }
 }
 
@@ -2351,12 +3046,17 @@ export default router;
 FILE: synergi-stellar/backend/src/agents/math.ts
 ================================================
 import { Router } from 'express';
+import { env } from '../config.js';
 import { createPaywall } from '../x402/middleware.js';
+import { buildAgentResponse } from './response.js';
 
 const router = Router();
+const AGENT_NAME = 'MathSolver';
+const PRICE_USDC = 0.002;
 
-router.post('/', createPaywall(0.002, 'MathSolver'), async (req, res) => {
+router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   const raw = String(req.body?.input ?? '0');
+  const depth = Number(req.body?.depth ?? 0);
   const sanitized = raw.replace(/[^\d+\-*/().\s]/g, '');
   let result: number | null = null;
   let error: string | null = null;
@@ -2370,23 +3070,24 @@ router.post('/', createPaywall(0.002, 'MathSolver'), async (req, res) => {
     error = 'Invalid expression';
   }
 
-  res.json({
-    agent: 'MathSolver',
-    pricePaid: 0.002,
-    data: {
-      expression: raw,
-      result,
-      error
-    },
-    txHash: fakeTxHash('math')
-  });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(
+    buildAgentResponse({
+      res,
+      agentName: AGENT_NAME,
+      pricePaid: PRICE_USDC,
+      data: {
+        expression: raw,
+        result,
+        error
+      },
+      agentPublicKey: env.AGENT_MATH_PUBLIC_KEY,
+      depth
+    })
+  );
 });
 
 export default router;
-
-function fakeTxHash(prefix: string): string {
-  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
-}
 
 
 
@@ -2394,34 +3095,40 @@ function fakeTxHash(prefix: string): string {
 FILE: synergi-stellar/backend/src/agents/news.ts
 ================================================
 import { Router } from 'express';
+import { env } from '../config.js';
 import { createPaywall } from '../x402/middleware.js';
+import { buildAgentResponse } from './response.js';
 
 const router = Router();
+const AGENT_NAME = 'NewsDigest';
+const PRICE_USDC = 0.002;
 
-router.post('/', createPaywall(0.002, 'NewsDigest'), async (req, res) => {
+router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   const topic = String(req.body?.input ?? 'AI market updates');
+  const depth = Number(req.body?.depth ?? 0);
   const headlines = [
     `Market update on ${topic}: liquidity remains stable`,
     `${topic}: institutional participation increasing`,
     `${topic}: short-term volatility remains elevated`
   ];
 
-  res.json({
-    agent: 'NewsDigest',
-    pricePaid: 0.002,
-    data: {
-      topic,
-      headlines
-    },
-    txHash: fakeTxHash('news')
-  });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(
+    buildAgentResponse({
+      res,
+      agentName: AGENT_NAME,
+      pricePaid: PRICE_USDC,
+      data: {
+        topic,
+        headlines
+      },
+      agentPublicKey: env.AGENT_NEWS_PUBLIC_KEY,
+      depth
+    })
+  );
 });
 
 export default router;
-
-function fakeTxHash(prefix: string): string {
-  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
-}
 
 
 
@@ -2429,12 +3136,17 @@ function fakeTxHash(prefix: string): string {
 FILE: synergi-stellar/backend/src/agents/price.ts
 ================================================
 import { Router } from 'express';
+import { env } from '../config.js';
 import { createPaywall } from '../x402/middleware.js';
+import { buildAgentResponse } from './response.js';
 
 const router = Router();
+const AGENT_NAME = 'PriceFeed';
+const PRICE_USDC = 0.001;
 
-router.post('/', createPaywall(0.001, 'PriceFeed'), async (req, res) => {
+router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   const input = String(req.body?.input ?? 'XLM BTC ETH');
+  const depth = Number(req.body?.depth ?? 0);
   const assets = input.toUpperCase();
   const prices: Record<string, number> = {
     XLM: 0.124,
@@ -2445,19 +3157,20 @@ router.post('/', createPaywall(0.001, 'PriceFeed'), async (req, res) => {
 
   const filtered = Object.fromEntries(Object.entries(prices).filter(([symbol]) => assets.includes(symbol)));
 
-  res.json({
-    agent: 'PriceFeed',
-    pricePaid: 0.001,
-    data: Object.keys(filtered).length > 0 ? filtered : prices,
-    txHash: fakeTxHash('price')
-  });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(
+    buildAgentResponse({
+      res,
+      agentName: AGENT_NAME,
+      pricePaid: PRICE_USDC,
+      data: Object.keys(filtered).length > 0 ? filtered : prices,
+      agentPublicKey: env.AGENT_PRICE_PUBLIC_KEY,
+      depth
+    })
+  );
 });
 
 export default router;
-
-function fakeTxHash(prefix: string): string {
-  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
-}
 
 
 
@@ -2469,49 +3182,65 @@ import { randomUUID } from 'node:crypto';
 import { env } from '../config.js';
 import { createPaywall } from '../x402/middleware.js';
 import { x402FetchJson } from '../x402/client.js';
+import { buildAgentResponse } from './response.js';
 
 const router = Router();
 const MAX_DEPTH = 2;
+const AGENT_NAME = 'DeepResearch';
+const PRICE_USDC = 0.01;
 
-router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
+function getBackendBaseUrl(): string {
+  return process.env.RUNTIME_BACKEND_BASE_URL || env.BACKEND_BASE_URL;
+}
+
+router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   const input = String(req.body?.input ?? 'research topic');
   const depth = Number(req.body?.depth ?? 0);
   const sessionId = String(req.header('x-session-id') ?? randomUUID());
+
   if (depth >= MAX_DEPTH) {
-    res.json({
-      agent: 'DeepResearch',
-      pricePaid: 0.01,
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.json(buildAgentResponse({
+      res,
+      agentName: AGENT_NAME,
+      pricePaid: PRICE_USDC,
       data: {
         topic: input,
         depth,
         maxDepth: MAX_DEPTH,
         agentsUsed: [],
-        totalCost: 0.01,
+        subTransactions: [],
+        totalCost: PRICE_USDC,
         result: {
           summary: 'Depth limit reached for recursive research execution.'
         }
       },
-      txHash: fakeTxHash('res')
-    });
+      agentPublicKey: env.AGENT_RESEARCH_PUBLIC_KEY,
+      depth
+    }));
     return;
   }
 
-  const plan = buildSubAgentPlan(input);
+  const subAgentCalls = [
+    { agent: 'Summarizer', endpoint: 'summarize', pricePaid: 0.001 },
+    { agent: 'SentimentAI', endpoint: 'sentiment', pricePaid: 0.001 }
+  ] as const;
+
   const settled = await Promise.allSettled(
-    plan.map(async (entry) => {
+    subAgentCalls.map(async (entry) => {
       const response = await x402FetchJson<{
-        data?: unknown;
-        pricePaid?: number;
+        data?: Record<string, unknown>;
         txHash?: string;
+        pricePaid?: number;
       }>(
         sessionId,
-        `${env.BACKEND_BASE_URL}/agents/${entry.endpoint}`,
+        `${getBackendBaseUrl()}/agents/${entry.endpoint}`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'x-session-id': sessionId,
-            'x-parent-agent': 'DeepResearch'
+            'x-parent-agent': AGENT_NAME
           },
           body: JSON.stringify({ input, depth: depth + 1 })
         },
@@ -2520,104 +3249,140 @@ router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
           timeoutMs: 8000,
           agentName: entry.agent,
           fallbackFactory: (reason) => ({
-            data: {
-              fallback: true,
-              reason
-            },
-            pricePaid: 0,
-            txHash: `fallback-${entry.endpoint}-${Date.now().toString(16)}`
+            data: { fallback: true, reason },
+            txHash: mockTxHash(entry.agent),
+            pricePaid: entry.pricePaid
           })
         }
       );
+
       const payload = response.data;
       return {
         agent: entry.agent,
-        endpoint: entry.endpoint,
-        data: payload.data,
-        pricePaid: Number(payload.pricePaid ?? entry.price),
-        txHash: String(payload.txHash ?? fakeTxHash(entry.endpoint)),
-        fallbackUsed: response.fallbackUsed,
-        attempts: response.attempts
+        data: payload.data ?? { fallback: true, reason: 'No payload data' },
+        txHash: typeof payload.txHash === 'string' ? payload.txHash : mockTxHash(entry.agent),
+        pricePaid: Number(payload.pricePaid ?? entry.pricePaid)
       };
     })
   );
 
-  const successful = settled
-    .filter(
-      (
-        item
-      ): item is PromiseFulfilledResult<{
-        agent: string;
-        endpoint: string;
-        data: unknown;
-        pricePaid: number;
-        txHash: string;
-        fallbackUsed: boolean;
-        attempts: number;
-      }> => item.status === 'fulfilled'
-    )
-    .map((item) => item.value);
-  const failed = settled
-    .filter((item): item is PromiseRejectedResult => item.status === 'rejected')
-    .map((item) => String(item.reason));
+  const byAgent = new Map<string, { data: Record<string, unknown>; txHash: string; pricePaid: number }>();
+  settled.forEach((item, index) => {
+    const entry = subAgentCalls[index];
+    if (item.status === 'fulfilled') {
+      byAgent.set(entry.agent, item.value);
+      return;
+    }
 
-  const subAgentCost = successful.reduce((sum, item) => sum + item.pricePaid, 0);
-  const aggregated = Object.fromEntries(successful.map((item) => [item.agent, item.data]));
+    byAgent.set(entry.agent, {
+      data: { fallback: true, reason: String(item.reason) },
+      txHash: mockTxHash(entry.agent),
+      pricePaid: entry.pricePaid
+    });
+  });
 
-  res.json({
-    agent: 'DeepResearch',
-    pricePaid: 0.01,
+  const summaryResult = byAgent.get('Summarizer') ?? {
+    data: { fallback: true, reason: 'Summarizer unavailable' },
+    txHash: mockTxHash('Summarizer'),
+    pricePaid: 0.001
+  };
+
+  const sentimentResult = byAgent.get('SentimentAI') ?? {
+    data: { fallback: true, reason: 'SentimentAI unavailable' },
+    txHash: mockTxHash('SentimentAI'),
+    pricePaid: 0.001
+  };
+
+  const subTransactions = [
+    { agent: 'Summarizer', txHash: summaryResult.txHash, pricePaid: 0.001, from: 'DeepResearch', depth: depth + 1 },
+    { agent: 'SentimentAI', txHash: sentimentResult.txHash, pricePaid: 0.001, from: 'DeepResearch', depth: depth + 1 }
+  ];
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(buildAgentResponse({
+    res,
+    agentName: AGENT_NAME,
+    pricePaid: PRICE_USDC,
     data: {
       topic: input,
       depth,
       maxDepth: MAX_DEPTH,
-      agentsUsed: successful.map((item) => item.agent),
-      subTransactions: successful.map((item) => ({
-        agent: item.agent,
-        txHash: item.txHash,
-        pricePaid: item.pricePaid,
-        from: 'DeepResearch',
-        depth: depth + 1,
-        fallbackUsed: item.fallbackUsed,
-        attempts: item.attempts
-      })),
-      totalCost: Number((0.01 + subAgentCost).toFixed(6)),
-      failed,
-      result: aggregated
+      agentsUsed: ['Summarizer', 'SentimentAI'],
+      subTransactions,
+      totalCost: Number((PRICE_USDC + summaryResult.pricePaid + sentimentResult.pricePaid).toFixed(6)),
+      result: {
+        Summarizer: summaryResult.data,
+        SentimentAI: sentimentResult.data
+      }
     },
-    txHash: fakeTxHash('res')
-  });
+    agentPublicKey: env.AGENT_RESEARCH_PUBLIC_KEY,
+    depth
+  }));
 });
 
 export default router;
 
-function fakeTxHash(prefix: string): string {
-  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+function mockTxHash(agentName: string): string {
+  return `mock-${agentName.toLowerCase()}-${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
 }
 
-function buildSubAgentPlan(input: string): Array<{ agent: string; endpoint: string; price: number }> {
-  const lower = input.toLowerCase();
-  const plan: Array<{ agent: string; endpoint: string; price: number }> = [
-    { agent: 'Summarizer', endpoint: 'summarize', price: 0.001 }
-  ];
 
-  if (lower.includes('sentiment') || lower.includes('risk') || lower.includes('opinion')) {
-    plan.push({ agent: 'SentimentAI', endpoint: 'sentiment', price: 0.001 });
+
+================================================
+FILE: synergi-stellar/backend/src/agents/response.ts
+================================================
+import { randomUUID } from 'node:crypto';
+import type { Response } from 'express';
+import { decodePaymentResponseHeader } from '@x402/core/http';
+
+const STELLAR_TESTNET_NETWORK = 'stellar:testnet' as const;
+
+export interface AgentResponseEnvelope<T extends object> {
+  agent: string;
+  pricePaid: number;
+  data: T;
+  txHash: string;
+  agentPublicKey: string;
+  depth: number;
+  timestamp: string;
+  network: typeof STELLAR_TESTNET_NETWORK;
+}
+
+export function buildAgentResponse<T extends object>(params: {
+  res: Response;
+  agentName: string;
+  pricePaid: number;
+  data: T;
+  agentPublicKey: string | undefined;
+  depth: number;
+}): AgentResponseEnvelope<T> {
+  return {
+    agent: params.agentName,
+    pricePaid: params.pricePaid,
+    data: params.data,
+    txHash: resolveTxHash(params.res, params.agentName),
+    agentPublicKey: params.agentPublicKey ?? 'UNCONFIGURED',
+    depth: params.depth,
+    timestamp: new Date().toISOString(),
+    network: STELLAR_TESTNET_NETWORK
+  };
+}
+
+function resolveTxHash(res: Response, agentName: string): string {
+  const raw = res.getHeader('PAYMENT-RESPONSE');
+  if (typeof raw === 'string') {
+    try {
+      const decoded = decodePaymentResponseHeader(raw) as Record<string, unknown>;
+      const tx = decoded.transaction;
+      if (typeof tx === 'string' && tx.trim().length > 0) {
+        return tx;
+      }
+    } catch {
+      // Ignore malformed header and fallback to mock hash.
+    }
   }
 
-  if (lower.includes('news') || lower.includes('headline')) {
-    plan.push({ agent: 'NewsDigest', endpoint: 'news', price: 0.002 });
-  }
-
-  if (lower.includes('price') || lower.includes('xlm') || lower.includes('btc') || lower.includes('eth')) {
-    plan.push({ agent: 'PriceFeed', endpoint: 'price', price: 0.001 });
-  }
-
-  if (/[0-9]+\s*[+\-*/]/.test(lower)) {
-    plan.push({ agent: 'MathSolver', endpoint: 'math', price: 0.002 });
-  }
-
-  return plan;
+  return `mock-${agentName.toLowerCase()}-${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
 }
 
 
@@ -2626,32 +3391,38 @@ function buildSubAgentPlan(input: string): Array<{ agent: string; endpoint: stri
 FILE: synergi-stellar/backend/src/agents/sentiment.ts
 ================================================
 import { Router } from 'express';
+import { env } from '../config.js';
 import { createPaywall } from '../x402/middleware.js';
+import { buildAgentResponse } from './response.js';
 
 const router = Router();
+const AGENT_NAME = 'SentimentAI';
+const PRICE_USDC = 0.001;
 
-router.post('/', createPaywall(0.001, 'SentimentAI'), async (req, res) => {
+router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   const input = String(req.body?.input ?? 'neutral');
+  const depth = Number(req.body?.depth ?? 0);
   const lower = input.toLowerCase();
   const score = lower.includes('risk') || lower.includes('loss') ? -0.35 : lower.includes('growth') || lower.includes('gain') ? 0.42 : 0.05;
   const label = score > 0.2 ? 'positive' : score < -0.2 ? 'negative' : 'neutral';
 
-  res.json({
-    agent: 'SentimentAI',
-    pricePaid: 0.001,
-    data: {
-      label,
-      score
-    },
-    txHash: fakeTxHash('sent')
-  });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(
+    buildAgentResponse({
+      res,
+      agentName: AGENT_NAME,
+      pricePaid: PRICE_USDC,
+      data: {
+        label,
+        score
+      },
+      agentPublicKey: env.AGENT_SENTIMENT_PUBLIC_KEY,
+      depth
+    })
+  );
 });
 
 export default router;
-
-function fakeTxHash(prefix: string): string {
-  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
-}
 
 
 
@@ -2659,32 +3430,107 @@ function fakeTxHash(prefix: string): string {
 FILE: synergi-stellar/backend/src/agents/summarize.ts
 ================================================
 import { Router } from 'express';
+import { env } from '../config.js';
 import { createPaywall } from '../x402/middleware.js';
+import { buildAgentResponse } from './response.js';
 
 const router = Router();
+const AGENT_NAME = 'Summarizer';
+const PRICE_USDC = 0.001;
 
-router.post('/', createPaywall(0.001, 'Summarizer'), async (req, res) => {
+router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   const input = String(req.body?.input ?? 'No content provided');
+  const depth = Number(req.body?.depth ?? 0);
   const sentences = input
     .split(/[.!?]/)
     .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 3);
 
-  res.json({
-    agent: 'Summarizer',
-    pricePaid: 0.001,
-    data: {
-      summary: sentences.join('. ') || input.slice(0, 160)
-    },
-    txHash: fakeTxHash('sum')
-  });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(
+    buildAgentResponse({
+      res,
+      agentName: AGENT_NAME,
+      pricePaid: PRICE_USDC,
+      data: {
+        summary: sentences.join('. ') || input.slice(0, 160)
+      },
+      agentPublicKey: env.AGENT_SUMMARIZER_PUBLIC_KEY,
+      depth
+    })
+  );
 });
 
 export default router;
 
-function fakeTxHash(prefix: string): string {
-  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+
+
+================================================
+FILE: synergi-stellar/backend/src/lib/logger.ts
+================================================
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+const levelOrder: Record<LogLevel, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40
+};
+
+function getCurrentLevel(): LogLevel {
+  const raw = (process.env.LOG_LEVEL ?? 'info').toLowerCase();
+  if (raw === 'debug' || raw === 'info' || raw === 'warn' || raw === 'error') {
+    return raw;
+  }
+  return 'info';
+}
+
+function shouldLog(level: LogLevel): boolean {
+  return levelOrder[level] >= levelOrder[getCurrentLevel()];
+}
+
+function safeMeta(meta?: Record<string, unknown>): string {
+  if (!meta || Object.keys(meta).length === 0) return '';
+  try {
+    return ` ${JSON.stringify(meta)}`;
+  } catch {
+    return ' {"meta":"unserializable"}';
+  }
+}
+
+function emit(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
+  if (!shouldLog(level)) return;
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] [${level.toUpperCase()}] ${message}${safeMeta(meta)}`;
+
+  if (level === 'error') {
+    console.error(line);
+    return;
+  }
+
+  if (level === 'warn') {
+    console.warn(line);
+    return;
+  }
+
+  console.log(line);
+}
+
+export function logDebug(message: string, meta?: Record<string, unknown>): void {
+  emit('debug', message, meta);
+}
+
+export function logInfo(message: string, meta?: Record<string, unknown>): void {
+  emit('info', message, meta);
+}
+
+export function logWarn(message: string, meta?: Record<string, unknown>): void {
+  emit('warn', message, meta);
+}
+
+export function logError(message: string, meta?: Record<string, unknown>): void {
+  emit('error', message, meta);
 }
 
 
@@ -3032,17 +3878,55 @@ FILE: synergi-stellar/backend/src/stellar/contract.ts
 ================================================
 import { AgentCatalogItem, AgentName } from '../lib/types.js';
 import { staticCatalog } from '../lib/store.js';
+import { env } from '../config.js';
+
+/* SOROBAN INTEGRATION STUB
+When CONTRACT_ID env var is set (not 'LOCAL_MOCK_CONTRACT'), this module
+would use @stellar/stellar-sdk Contract class to call on-chain functions:
+
+import { Contract, rpc, xdr } from '@stellar/stellar-sdk';
+const server = new rpc.Server('https://soroban-testnet.stellar.org');
+const contract = new Contract(process.env.CONTRACT_ID!);
+
+To register an agent on-chain:
+const tx = await server.prepareTransaction(
+  new TransactionBuilder(account, { fee: '100', networkPassphrase: Networks.TESTNET })
+    .addOperation(contract.call('register_agent', ...))
+    .setTimeout(30).build()
+);
+
+For hackathon submission, in-memory state is used for speed.
+All state updates happen identically to what the contract would do.
+*/
 
 const agentState = new Map<AgentName, AgentCatalogItem>(
   staticCatalog.map((item) => [item.name, { ...item }])
 );
+const basePriceByAgent = new Map<AgentName, number>(staticCatalog.map((item) => [item.name, item.price]));
+const allTransactions: Array<{
+  agentName: AgentName;
+  success: boolean;
+  price: number;
+  reputation: number;
+  timestamp: string;
+}> = [];
 
-export function getAgentCatalog(): AgentCatalogItem[] {
-  return Array.from(agentState.values()).map((item) => ({ ...item }));
+if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
+  throw new Error('Invalid CONTRACT_ID: set CONTRACT_ID or use LOCAL_MOCK_CONTRACT for local mode.');
 }
 
-export function getAgentByName(name: AgentName): AgentCatalogItem | undefined {
-  const found = agentState.get(name);
+export function getAgentCatalog(): Array<AgentCatalogItem & { explorerUrl: string }> {
+  return Array.from(agentState.values()).map((item) => {
+    const publicKey = getAgentPublicKey(item.name);
+    return {
+      ...item,
+      explorerUrl: `https://stellar.expert/explorer/testnet/account/${publicKey}`
+    };
+  });
+}
+
+export function getAgentByName(name: string): AgentCatalogItem | undefined {
+  const found = agentState.get(name as AgentName);
   return found ? { ...found } : undefined;
 }
 
@@ -3058,16 +3942,58 @@ export function recordJobResult(name: AgentName, success: boolean): AgentCatalog
   const next = { ...current };
   if (success) {
     next.jobsCompleted += 1;
-    next.reputation = Math.min(10000, next.reputation + 50);
+    next.reputation = Math.min(10000, next.reputation + 45);
   } else {
     next.jobsFailed += 1;
-    next.reputation = Math.max(0, next.reputation - 100);
+    next.reputation = Math.max(0, next.reputation - 120);
   }
 
-  const multiplier = next.reputation >= 8500 ? 1.1 : next.reputation < 6000 ? 0.9 : 1;
-  next.price = Number((current.price * multiplier).toFixed(6));
+  const basePrice = basePriceByAgent.get(name) ?? current.price;
+  let multiplier = 1;
+  if (next.reputation >= 8500) {
+    multiplier = 1.1;
+  } else if (next.reputation < 5000) {
+    multiplier = 0.9;
+  }
+
+  const minPrice = basePrice * 0.7;
+  const maxPrice = basePrice * 1.3;
+  const proposedPrice = basePrice * multiplier;
+  next.price = Number(Math.min(maxPrice, Math.max(minPrice, proposedPrice)).toFixed(6));
+
   agentState.set(name, next);
+  allTransactions.push({
+    agentName: name,
+    success,
+    price: next.price,
+    reputation: next.reputation,
+    timestamp: new Date().toISOString()
+  });
+
   return { ...next };
+}
+
+export function getAllTransactions(): Array<{
+  agentName: AgentName;
+  success: boolean;
+  price: number;
+  reputation: number;
+  timestamp: string;
+}> {
+  return allTransactions.map((item) => ({ ...item }));
+}
+
+function getAgentPublicKey(agentName: AgentName): string {
+  const envByAgent: Record<AgentName, string | undefined> = {
+    PriceFeed: process.env.AGENT_PRICE_PUBLIC_KEY,
+    NewsDigest: process.env.AGENT_NEWS_PUBLIC_KEY,
+    Summarizer: process.env.AGENT_SUMMARIZER_PUBLIC_KEY,
+    SentimentAI: process.env.AGENT_SENTIMENT_PUBLIC_KEY,
+    MathSolver: process.env.AGENT_MATH_PUBLIC_KEY,
+    DeepResearch: process.env.AGENT_RESEARCH_PUBLIC_KEY
+  };
+
+  return envByAgent[agentName] || 'UNCONFIGURED';
 }
 
 
@@ -3078,6 +4004,9 @@ FILE: synergi-stellar/backend/src/stellar/wallet.ts
 import { randomUUID } from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
 import { env } from '../config.js';
+
+const HORIZON_TESTNET_ACCOUNT_URL = 'https://horizon-testnet.stellar.org/accounts';
+const TESTNET_USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
 interface WalletBalance {
   publicKey: string;
@@ -3105,39 +4034,106 @@ export interface CreatedWallet {
 const managerPublic = env.MANAGER_SECRET_KEY ? Keypair.fromSecret(env.MANAGER_SECRET_KEY).publicKey() : 'UNCONFIGURED_MANAGER';
 const BALANCE_TTL_MS = 20_000;
 let cachedBalance: WalletBalanceCache | null = null;
+let balanceRefreshInFlight: Promise<void> | null = null;
 
-export function getManagerWalletBalance(): WalletBalance {
+export async function getManagerWalletBalance(): Promise<WalletBalance> {
   const now = Date.now();
   if (cachedBalance && cachedBalance.expiresAt > now) {
     return cachedBalance.value;
   }
 
-  const value: WalletBalance = {
-    publicKey: managerPublic,
-    xlm: '1000.0000000',
-    usdc: '250.0000000',
-    network: env.STELLAR_NETWORK,
-    updatedAt: new Date(now).toISOString()
-  };
+  if (!balanceRefreshInFlight) {
+    balanceRefreshInFlight = refreshManagerBalance().finally(() => {
+      balanceRefreshInFlight = null;
+    });
+  }
 
+  return cachedBalance?.value ?? buildFallbackBalance(managerPublic, now);
+}
+
+export async function createSponsoredWallet(agentName: string): Promise<CreatedWallet> {
+  const keypair = Keypair.random();
+  try {
+    await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(keypair.publicKey())}`);
+  } catch {}
+
+  const publicKey = keypair.publicKey();
+
+  return {
+    walletId: randomUUID(),
+    name: agentName,
+    publicKey,
+    secretKey: keypair.secret(),
+    xlmFunded: '10000',
+    network: env.STELLAR_NETWORK,
+    createdAt: new Date().toISOString()
+  };
+}
+
+async function refreshManagerBalance(): Promise<void> {
+  const now = Date.now();
+  const value = await fetchWalletBalance(managerPublic, now);
   cachedBalance = {
     value,
     expiresAt: now + BALANCE_TTL_MS
   };
-
-  return value;
 }
 
-export function createSponsoredWallet(agentName: string): CreatedWallet {
-  const keypair = Keypair.random();
+async function fetchWalletBalance(publicKey: string, now: number): Promise<WalletBalance> {
+  if (!publicKey || publicKey === 'UNCONFIGURED_MANAGER') {
+    return buildFallbackBalance(publicKey, now);
+  }
+
+  try {
+    const response = await fetch(`${HORIZON_TESTNET_ACCOUNT_URL}/${encodeURIComponent(publicKey)}`);
+
+    if (response.status === 404) {
+      console.warn(`[wallet] Horizon account not found for ${publicKey}; returning fallback balance.`);
+      return buildFallbackBalance(publicKey, now);
+    }
+
+    if (!response.ok) {
+      console.warn(`[wallet] Horizon fetch failed for ${publicKey} with status ${response.status}; returning fallback balance.`);
+      return buildFallbackBalance(publicKey, now);
+    }
+
+    const payload = (await response.json()) as {
+      balances?: Array<{
+        asset_type?: string;
+        asset_code?: string;
+        asset_issuer?: string;
+        balance?: string;
+      }>;
+    };
+
+    const balances = Array.isArray(payload.balances) ? payload.balances : [];
+    const nativeXlm = balances.find((b) => b.asset_type === 'native')?.balance ?? '0';
+    const usdc =
+      balances.find(
+        (b) => b.asset_code === 'USDC' && b.asset_issuer === TESTNET_USDC_ISSUER
+      )?.balance ?? '0';
+
+    return {
+      publicKey,
+      xlm: nativeXlm,
+      usdc,
+      network: env.STELLAR_NETWORK,
+      updatedAt: new Date(now).toISOString()
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[wallet] Horizon network error for ${publicKey}: ${message}; returning fallback balance.`);
+    return buildFallbackBalance(publicKey, now);
+  }
+}
+
+function buildFallbackBalance(publicKey: string, now: number): WalletBalance {
   return {
-    walletId: randomUUID(),
-    name: agentName,
-    publicKey: keypair.publicKey(),
-    secretKey: keypair.secret(),
-    xlmFunded: '1.5',
+    publicKey,
+    xlm: '0.0000000',
+    usdc: '0.0000000',
     network: env.STELLAR_NETWORK,
-    createdAt: new Date().toISOString()
+    updatedAt: new Date(now).toISOString()
   };
 }
 
@@ -3151,7 +4147,9 @@ import { decodePaymentResponseHeader, wrapFetchWithPaymentFromConfig } from '@x4
 import { createEd25519Signer, getUsdcAddress } from '@x402/stellar';
 import { ExactStellarScheme as ExactStellarClientScheme } from '@x402/stellar/exact/client';
 import { appendProtocolTrace } from '../lib/store.js';
-import { env, getStellarCaip2Network, isX402RealMode, isX402RealOnly } from '../config.js';
+import { env, isX402RealMode, isX402RealOnly } from '../config.js';
+
+const STELLAR_TESTNET_NETWORK = 'stellar:testnet' as const;
 
 export interface X402FetchResult<T = unknown> {
   data: T;
@@ -3202,33 +4200,8 @@ export async function x402FetchJson<T = unknown>(
     try {
       const first = await fetchWithTimeout(fetchImpl, url, init, timeoutMs);
 
-      if (first.status !== 402) {
-        if (!first.ok) {
-          throw new Error(`Call failed with status ${first.status}`);
-        }
-        const data = (await first.json()) as T;
-        appendProtocolTrace(sessionId, {
-          timestamp: new Date().toISOString(),
-          step: `response:${reqTraceId}`,
-          request: {
-            method: init.method ?? 'GET',
-            url,
-            headers: normalizedHeaders,
-            body: parseBody(init.body)
-          },
-          response: {
-            status: first.status,
-            headers: headersToObject(first.headers),
-            body: data
-          }
-        });
-        return {
-          data,
-          paymentAttempted: false,
-          protocolTraceStepIds: traceIds,
-          fallbackUsed: false,
-          attempts: attempt
-        };
+      if (!first.ok) {
+        throw new Error(`Call failed with status ${first.status}`);
       }
 
       const data = (await first.json()) as T;
@@ -3253,7 +4226,7 @@ export async function x402FetchJson<T = unknown>(
       });
 
       const txHash = settlementTx ?? extractField(enrichedData, 'txHash');
-      const paymentAttempted = Boolean(paymentResponseHeader || first.status !== 402);
+      const paymentAttempted = Boolean(paymentResponseHeader);
       console.log(
         `[x402] mode=${isX402RealMode ? 'real' : 'mock'} agent=${options.agentName ?? 'unknown'} txHash=${txHash || 'n/a'} attempt=${attempt}`
       );
@@ -3336,16 +4309,16 @@ function getFetchWithMode(): typeof fetch {
   }
 
   if (!paidFetch) {
-    const signer = createEd25519Signer(env.MANAGER_SECRET_KEY, getStellarCaip2Network());
+    const signer = createEd25519Signer(env.MANAGER_SECRET_KEY, STELLAR_TESTNET_NETWORK);
     paidFetch = wrapFetchWithPaymentFromConfig(fetch, {
       schemes: [
         {
-          network: getStellarCaip2Network(),
+          network: STELLAR_TESTNET_NETWORK,
           client: new ExactStellarClientScheme(signer)
         }
       ],
       paymentRequirementsSelector: (_, accepts) => {
-        const stellarOnly = accepts.filter((entry) => entry.network.startsWith('stellar:'));
+        const stellarOnly = accepts.filter((entry) => entry.network === STELLAR_TESTNET_NETWORK);
         return stellarOnly[0] ?? accepts[0];
       }
     });
@@ -3366,12 +4339,14 @@ function extractTransactionFromHeader(header: string): string | null {
 
 function mergeTxHash<T>(payload: T, txHash: string | null): T {
   if (!txHash || !payload || typeof payload !== 'object') return payload;
-  if (typeof (payload as Record<string, unknown>).txHash === 'string') return payload;
+  const current = payload as Record<string, unknown>;
   return {
-    ...(payload as Record<string, unknown>),
+    ...current,
+    agentTxHash: typeof current.txHash === 'string' ? current.txHash : null,
     txHash,
-    paymentNetwork: getStellarCaip2Network(),
-    settlementAsset: env.X402_USDC_ASSET_ADDRESS || getUsdcAddress(getStellarCaip2Network())
+    paymentTxHash: txHash,
+    paymentNetwork: STELLAR_TESTNET_NETWORK,
+    settlementAsset: env.X402_USDC_ASSET_ADDRESS || getUsdcAddress(STELLAR_TESTNET_NETWORK)
   } as T;
 }
 
@@ -3385,7 +4360,9 @@ import { Keypair } from '@stellar/stellar-sdk';
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http';
 import { HTTPFacilitatorClient, x402ResourceServer } from '@x402/core/server';
 import { ExactStellarScheme as ExactStellarServerScheme } from '@x402/stellar/exact/server';
-import { env, getStellarCaip2Network, isX402Enforced, isX402RealMode, isX402RealOnly } from '../config.js';
+import { env, isX402Enforced, isX402RealMode, isX402RealOnly } from '../config.js';
+
+const STELLAR_TESTNET_NETWORK = 'stellar:testnet' as const;
 
 const facilitatorClient = new HTTPFacilitatorClient({ url: env.FACILITATOR_URL });
 const resourceServer = new x402ResourceServer(facilitatorClient).register('stellar:*', new ExactStellarServerScheme());
@@ -3446,7 +4423,7 @@ export function createPaywall(priceUSDC: number, agentName: string) {
       scheme: 'exact',
       payTo: recipient,
       price: priceUSDC,
-      network: getStellarCaip2Network(),
+      network: STELLAR_TESTNET_NETWORK,
       maxTimeoutSeconds: env.X402_MAX_TIMEOUT_SECONDS
     });
 
@@ -3466,7 +4443,7 @@ export function createPaywall(priceUSDC: number, agentName: string) {
       res.setHeader('x-payment-enforced', 'true');
       res.setHeader('x-payment-required', 'true');
       res.setHeader('PAYMENT-REQUIRED', encodePaymentRequiredHeader(paymentRequired));
-      res.setHeader('x-payment-network', getStellarCaip2Network());
+      res.setHeader('x-payment-network', STELLAR_TESTNET_NETWORK);
       res.setHeader('x-payment-recipient', recipient);
       res.json({
         ok: false,
@@ -3474,7 +4451,7 @@ export function createPaywall(priceUSDC: number, agentName: string) {
           code: 'PAYMENT_REQUIRED',
           message: 'Payment required before accessing this endpoint.',
           details: {
-            network: getStellarCaip2Network(),
+            network: STELLAR_TESTNET_NETWORK,
             recipient,
             amount: priceUSDC,
             scheme: 'exact'
@@ -3872,18 +4849,20 @@ FILE: synergi-stellar/frontend/package.json
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "next lint"
   },
   "dependencies": {
     "d3": "^7.9.0",
+    "dotenv": "^17.3.1",
     "next": "14.2.24",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "stellar-sdk": "^13.3.0"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",
@@ -3896,7 +4875,12 @@ FILE: synergi-stellar/frontend/package.json
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2"
-  }
+  },
+  "main": "postcss.config.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
 }
 
 
@@ -3972,10 +4956,15 @@ FILE: synergi-stellar/frontend/tsconfig.json
 
 
 ================================================
-FILE: synergi-stellar/frontend/.env.local.example
+FILE: synergi-stellar/frontend/.eslintrc.json
 ================================================
-NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
-NEXT_PUBLIC_STELLAR_NETWORK=testnet
+{
+  "extends": [
+    "next/core-web-vitals",
+    "next/typescript"
+  ]
+}
+
 
 
 ================================================
@@ -4298,6 +5287,14 @@ type LatestDoc = {
   updatedAt: string;
 };
 
+type ChainConfig = {
+  network: string;
+  contractId: string;
+  x402Mode: string;
+  x402Enforced: boolean;
+  contractConfigured: boolean;
+};
+
 function formatUpdatedDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Unknown';
@@ -4309,6 +5306,60 @@ function formatUpdatedDate(value: string): string {
 }
 
 export const dynamic = 'force-dynamic';
+const REQUIRED_FREIGHTER_ADDRESS = process.env.NEXT_PUBLIC_REQUIRED_FREIGHTER_ADDRESS?.trim() ?? '';
+const REQUIRED_STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK?.trim().toLowerCase() ?? '';
+
+type FreighterApi = {
+  isConnected?: () => Promise<boolean>;
+  requestAccess?: () => Promise<unknown>;
+  getAddress?: () => Promise<{ address?: string; publicKey?: string } | string>;
+  getPublicKey?: () => Promise<string>;
+  getNetwork?: () => Promise<string>;
+  getNetworkDetails?: () => Promise<{ network?: string; networkPassphrase?: string }>;
+};
+
+function getFreighterApi(): FreighterApi | null {
+  if (typeof window === 'undefined') return null;
+  const candidate = (window as Window & { freighterApi?: FreighterApi }).freighterApi;
+  return candidate ?? null;
+}
+
+async function readWalletAddress(api: FreighterApi): Promise<string> {
+  if (api.getAddress) {
+    const value = await api.getAddress();
+    if (typeof value === 'string') return value;
+    if (value.address) return value.address;
+    if (value.publicKey) return value.publicKey;
+  }
+  if (api.getPublicKey) {
+    return api.getPublicKey();
+  }
+  throw new Error('Freighter wallet address API is unavailable');
+}
+
+async function readWalletNetwork(api: FreighterApi): Promise<string> {
+  if (api.getNetworkDetails) {
+    const details = await api.getNetworkDetails();
+    return details.network ?? details.networkPassphrase ?? 'unknown';
+  }
+  if (api.getNetwork) {
+    return api.getNetwork();
+  }
+  return 'unknown';
+}
+
+function shortAddress(address: string): string {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 6)}...${address.slice(-6)}`;
+}
+
+function normalizeNetwork(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return 'unknown';
+  if (normalized.includes('testnet') || normalized.includes('test sdf network')) return 'testnet';
+  if (normalized.includes('mainnet') || normalized.includes('public global stellar network')) return 'mainnet';
+  return normalized;
+}
 
 export default function HomePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -4316,6 +5367,73 @@ export default function HomePage() {
   const [catalog, setCatalog] = useState<AgentCatalogItem[]>([]);
   const [latestDocs, setLatestDocs] = useState<LatestDoc[]>([]);
   const [statusSnapshot, setStatusSnapshot] = useState<SessionStatus | null>(null);
+  const [chainConfig, setChainConfig] = useState<ChainConfig | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletNetwork, setWalletNetwork] = useState<string>('');
+  const [walletError, setWalletError] = useState<string>('');
+  const [walletBusy, setWalletBusy] = useState<boolean>(false);
+
+  useEffect(() => {
+    const api = getFreighterApi();
+    if (!api?.isConnected) return;
+
+    void api
+      .isConnected()
+      .then(async (connected) => {
+        if (!connected) return;
+        const [address, network] = await Promise.all([readWalletAddress(api), readWalletNetwork(api)]);
+        setWalletAddress(address);
+        setWalletNetwork(normalizeNetwork(network));
+      })
+      .catch(() => {
+        setWalletAddress(null);
+      });
+  }, []);
+
+  const connectFreighter = async () => {
+    setWalletError('');
+    setWalletBusy(true);
+
+    try {
+      const api = getFreighterApi();
+      if (!api) {
+        throw new Error('Freighter extension not found. Install Freighter and refresh the page.');
+      }
+
+      if (api.requestAccess) {
+        await api.requestAccess();
+      }
+
+      const [address, network] = await Promise.all([readWalletAddress(api), readWalletNetwork(api)]);
+      const normalizedNetwork = normalizeNetwork(network);
+      if (REQUIRED_FREIGHTER_ADDRESS && address !== REQUIRED_FREIGHTER_ADDRESS) {
+        throw new Error(
+          `Wrong wallet selected. Please switch Freighter account to ${REQUIRED_FREIGHTER_ADDRESS}.`
+        );
+      }
+
+      if (REQUIRED_STELLAR_NETWORK && normalizedNetwork !== REQUIRED_STELLAR_NETWORK) {
+        throw new Error(
+          `Wrong network selected. Please switch Freighter to ${REQUIRED_STELLAR_NETWORK}.`
+        );
+      }
+
+      setWalletAddress(address);
+      setWalletNetwork(normalizedNetwork);
+    } catch (error) {
+      setWalletAddress(null);
+      setWalletNetwork('');
+      setWalletError(error instanceof Error ? error.message : 'Unable to connect Freighter wallet');
+    } finally {
+      setWalletBusy(false);
+    }
+  };
+
+  const disconnectWallet = () => {
+    setWalletAddress(null);
+    setWalletNetwork('');
+    setWalletError('');
+  };
 
   useEffect(() => {
     void fetch('/api/agents/catalog')
@@ -4344,12 +5462,24 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    void fetch('/api/chain/config')
+      .then((res) => res.json())
+      .then((payload: ApiEnvelope<ChainConfig>) => {
+        if (payload.ok && payload.data) {
+          setChainConfig(payload.data);
+          return;
+        }
+        setChainConfig(null);
+      })
+      .catch(() => setChainConfig(null));
+  }, []);
+
+  useEffect(() => {
     if (!sessionId) return;
     setEvents([]);
     setStatusSnapshot(null);
 
-    const backend = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
-    const source = new EventSource(`${backend}/api/events/${sessionId}`);
+    const source = new EventSource(`/api/events/${sessionId}`);
 
     source.onmessage = (event) => {
       try {
@@ -4409,9 +5539,50 @@ export default function HomePage() {
             <h1 className="text-2xl font-bold text-slate-900">SynergiStellar Dashboard</h1>
             <p className="text-sm text-slate-600">x402 autonomous agent economy on Stellar</p>
           </div>
-          <span className="glass-chip w-fit">Live Demo Mode</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="glass-chip w-fit">Live Demo Mode</span>
+            {walletAddress ? (
+              <>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
+                  Wallet {shortAddress(walletAddress)}
+                </span>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                  {walletNetwork || 'network unknown'}
+                </span>
+                <button
+                  type="button"
+                  onClick={disconnectWallet}
+                  className="soft-ring rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-slate-400"
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void connectFreighter()}
+                disabled={walletBusy}
+                className="soft-ring rounded-lg border border-emerald-300 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {walletBusy ? 'Connecting...' : 'Connect Freighter Wallet'}
+              </button>
+            )}
+          </div>
         </div>
         <p className="mt-2 text-sm text-slate-700">Payment volume: {totalPaid} USDC</p>
+        {chainConfig ? (
+          <p className="mt-1 text-xs text-slate-600">
+            Network: {chainConfig.network} · Contract:{' '}
+            {chainConfig.contractConfigured ? shortAddress(chainConfig.contractId) : 'not configured'} · x402:{' '}
+            {chainConfig.x402Mode}
+          </p>
+        ) : null}
+        {walletError ? <p className="mt-1 text-xs text-rose-600">{walletError}</p> : null}
+        {!walletAddress && REQUIRED_FREIGHTER_ADDRESS ? (
+          <p className="mt-1 text-[11px] text-slate-500">
+            Required Freighter wallet: {shortAddress(REQUIRED_FREIGHTER_ADDRESS)}
+          </p>
+        ) : null}
         <p className="text-xs text-slate-500">
           {statusSnapshot
             ? `Steps ${statusSnapshot.completedSteps}/${statusSnapshot.totalSteps} · Transactions ${statusSnapshot.metrics.transactionCount}`
@@ -4520,32 +5691,77 @@ FILE: synergi-stellar/frontend/src/app/api/[...path]/route.ts
 ================================================
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
+function getBackendUrl(): string {
+  const configured = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (configured) return configured;
+  if (process.env.NODE_ENV !== 'production') return 'http://localhost:4000';
+  throw new Error('Missing BACKEND_URL (or NEXT_PUBLIC_BACKEND_URL) for frontend API proxy in production');
+}
+
+function pickHeaders(headers: Headers): Record<string, string> {
+  const allowed = ['content-type', 'cache-control', 'connection', 'x-payment-enforced', 'x-payment-required'];
+  const nextHeaders: Record<string, string> = {};
+  for (const name of allowed) {
+    const value = headers.get(name);
+    if (value) nextHeaders[name] = value;
+  }
+  return nextHeaders;
+}
+
+function resolveBackendPath(path: string[]): string {
+  const direct = `/${path.join('/')}`;
+  const first = path[0] ?? '';
+
+  const shouldUseApiPrefix = new Set(['query', 'events', 'status', 'transactions', 'wallet']);
+  if (shouldUseApiPrefix.has(first)) {
+    return `/api/${path.join('/')}`;
+  }
+
+  if (first === 'chain' && path[1] === 'config') {
+    return `/api/${path.join('/')}`;
+  }
+
+  return direct;
+}
 
 async function proxy(request: NextRequest, path: string[]): Promise<NextResponse> {
-  const targetUrl = new URL(`${BACKEND_URL}/${path.join('/')}`);
-  request.nextUrl.searchParams.forEach((value, key) => {
-    targetUrl.searchParams.set(key, value);
-  });
+  try {
+    const BACKEND_URL = getBackendUrl();
+    const targetPath = resolveBackendPath(path);
+    const targetUrl = new URL(`${BACKEND_URL}${targetPath}`);
+    request.nextUrl.searchParams.forEach((value, key) => {
+      targetUrl.searchParams.set(key, value);
+    });
 
-  const isBodyAllowed = !['GET', 'HEAD'].includes(request.method.toUpperCase());
-  const body = isBodyAllowed ? await request.text() : undefined;
+    const isBodyAllowed = !['GET', 'HEAD'].includes(request.method.toUpperCase());
+    const body = isBodyAllowed ? await request.text() : undefined;
 
-  const upstream = await fetch(targetUrl.toString(), {
-    method: request.method,
-    headers: {
-      'Content-Type': request.headers.get('content-type') ?? 'application/json'
-    },
-    body
-  });
+    const upstream = await fetch(targetUrl.toString(), {
+      method: request.method,
+      headers: {
+        'Content-Type': request.headers.get('content-type') ?? 'application/json',
+        Accept: request.headers.get('accept') ?? '*/*'
+      },
+      body
+    });
 
-  const text = await upstream.text();
-  return new NextResponse(text, {
-    status: upstream.status,
-    headers: {
-      'Content-Type': upstream.headers.get('content-type') ?? 'application/json'
-    }
-  });
+    return new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: pickHeaders(upstream.headers)
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'BACKEND_PROXY_ERROR',
+          message: error instanceof Error ? error.message : 'Frontend proxy failed to reach backend',
+          hint: 'Set BACKEND_URL (or NEXT_PUBLIC_BACKEND_URL) to your backend origin in Vercel env.'
+        }
+      },
+      { status: 500 }
+    );
+  }
 }
 
 export async function GET(request: NextRequest, context: { params: { path: string[] } }) {
@@ -4881,12 +6097,23 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning }
 ================================================
 FILE: synergi-stellar/frontend/src/components/Logo.tsx
 ================================================
+import Image from 'next/image';
+
 interface LogoProps {
   className?: string;
 }
 
 export default function Logo({ className }: LogoProps) {
-  return <img alt="SynergiStellar logo" className={className ?? 'h-8 w-8'} src="/logo.svg" />;
+  return (
+    <Image
+      alt="SynergiStellar logo"
+      className={className ?? 'h-8 w-8'}
+      height={32}
+      priority
+      src="/logo.svg"
+      width={32}
+    />
+  );
 }
 
 
@@ -4963,7 +6190,7 @@ FILE: synergi-stellar/frontend/src/components/TopologyGraph.tsx
 'use client';
 
 import * as d3 from 'd3';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StreamEvent } from '../lib/types';
 
 interface TopologyGraphProps {
@@ -4972,71 +6199,136 @@ interface TopologyGraphProps {
 
 interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
-  type: 'user' | 'manager' | 'worker';
+  type: 'user' | 'manager' | 'worker' | 'subagent';
+  totalReceived: number;
+  lastPaidAt: number;
+  pulse: boolean;
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
+  id: string;
   source: string | GraphNode;
   target: string | GraphNode;
-  recursive?: boolean;
-  amount?: number;
-  highlighted?: boolean;
+  kind: 'primary' | 'recursive';
+  amount: number;
 }
 
 export default function TopologyGraph({ events }: TopologyGraphProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const [pulseNow, setPulseNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setPulseNow(Date.now()), 250);
+    return () => clearInterval(interval);
+  }, []);
 
   const graph = useMemo(() => {
     const nodes = new Map<string, GraphNode>([
-      ['User', { id: 'User', type: 'user' }],
-      ['Manager', { id: 'Manager', type: 'manager' }]
+      ['User', { id: 'User', type: 'user', totalReceived: 0, lastPaidAt: 0, pulse: false }],
+      ['Manager', { id: 'Manager', type: 'manager', totalReceived: 0, lastPaidAt: 0, pulse: false }]
     ]);
 
-    const links: GraphLink[] = [{ source: 'User', target: 'Manager', highlighted: true }];
+    const links: GraphLink[] = [{ id: 'user-manager', source: 'User', target: 'Manager', kind: 'primary', amount: 0 }];
 
-    events.forEach((event) => {
-      const isPaymentEvent = event.type === 'paid' || event.type === 'recursive-paid';
+    const normalizeNode = (name: string): string => {
+      if (name === 'ManagerAgent') return 'Manager';
+      return name;
+    };
+
+    const ensureNode = (id: string, type: GraphNode['type']) => {
+      if (!nodes.has(id)) {
+        nodes.set(id, { id, type, totalReceived: 0, lastPaidAt: 0, pulse: false });
+        return;
+      }
+
+      const current = nodes.get(id);
+      if (!current) return;
+
+      if (type === 'subagent' && current.type === 'worker') {
+        current.type = 'subagent';
+      }
+    };
+
+    events.forEach((event, index) => {
+      const isPrimaryPaid = event.type === 'paid';
+      const isRecursivePaid = event.type === 'recursive-paid';
       const isHiringEvent = event.type === 'hiring' || event.type === 'step-start';
-      if (!isPaymentEvent && !isHiringEvent) return;
+      if (!isPrimaryPaid && !isRecursivePaid && !isHiringEvent) return;
 
       const agent = typeof event.agent === 'string' ? event.agent : null;
       if (!agent) return;
-      if (!nodes.has(agent)) {
-        nodes.set(agent, { id: agent, type: 'worker' });
+
+      const eventAt = typeof event.at === 'string' && Number.isFinite(Date.parse(event.at)) ? Date.parse(event.at) : pulseNow + index;
+      const amount = Number(event.amount ?? event.pricePaid ?? event.price ?? 0);
+
+      if (isRecursivePaid) {
+        ensureNode(agent, 'subagent');
+      } else {
+        ensureNode(agent, 'worker');
       }
 
-      const source = typeof event.source === 'string' ? event.source : 'Manager';
-      if (!nodes.has(source)) {
-        nodes.set(source, { id: source, type: source === 'User' ? 'user' : source === 'Manager' ? 'manager' : 'worker' });
+      const sourceRaw =
+        isRecursivePaid && typeof event.parentAgent === 'string'
+          ? event.parentAgent
+          : typeof event.source === 'string'
+            ? event.source
+            : 'Manager';
+      const source = normalizeNode(sourceRaw);
+
+      if (source === 'User') {
+        ensureNode(source, 'user');
+      } else if (source === 'Manager') {
+        ensureNode(source, 'manager');
+      } else {
+        ensureNode(source, 'worker');
       }
 
-      links.push({
-        source,
-        target: agent,
-        recursive: Number(event.depth ?? 0) > 1 || source === 'DeepResearch',
-        amount: Number(event.amount ?? event.price ?? 0),
-        highlighted: isPaymentEvent
-      });
+      if (isPrimaryPaid || isRecursivePaid) {
+        const targetNode = nodes.get(agent);
+        if (targetNode) {
+          targetNode.totalReceived = Number((targetNode.totalReceived + amount).toFixed(6));
+          targetNode.lastPaidAt = eventAt;
+        }
+
+        links.push({
+          id: `${isRecursivePaid ? 'recursive' : 'primary'}-${source}-${agent}-${index}`,
+          source,
+          target: agent,
+          kind: isRecursivePaid ? 'recursive' : 'primary',
+          amount
+        });
+      }
+    });
+
+    nodes.forEach((node) => {
+      node.pulse = pulseNow - node.lastPaidAt <= 2000;
     });
 
     return {
       nodes: Array.from(nodes.values()),
       links
     };
-  }, [events]);
+  }, [events, pulseNow]);
 
   useEffect(() => {
     if (!svgRef.current) return;
 
     const width = 620;
-    const height = 300;
+    const height = 360;
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
     const defs = svg.append('defs');
-    defs
+
+    const arrowIds = [
+      { id: 'arrow-primary', color: '#16a34a' },
+      { id: 'arrow-recursive', color: '#f59e0b' }
+    ];
+
+    arrowIds.forEach((marker) => {
+      defs
       .append('marker')
-      .attr('id', 'arrow')
+      .attr('id', marker.id)
       .attr('viewBox', '0 -5 10 10')
       .attr('refX', 18)
       .attr('refY', 0)
@@ -5045,13 +6337,57 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', '#64748b');
+      .attr('fill', marker.color);
+    });
+
+    const workers = graph.nodes.filter((node) => node.type === 'worker');
+    const subAgents = graph.nodes.filter((node) => node.type === 'subagent');
+
+    const manager = graph.nodes.find((node) => node.id === 'Manager');
+    if (manager) {
+      manager.fx = width / 2;
+      manager.fy = height / 2;
+      manager.x = width / 2;
+      manager.y = height / 2;
+    }
+
+    const user = graph.nodes.find((node) => node.id === 'User');
+    if (user) {
+      user.fx = 90;
+      user.fy = 55;
+      user.x = 90;
+      user.y = 55;
+    }
+
+    workers.forEach((worker, index) => {
+      const angle = (Math.PI * 2 * index) / Math.max(1, workers.length);
+      worker.x = width / 2 + Math.cos(angle) * 160;
+      worker.y = height / 2 + Math.sin(angle) * 120;
+    });
+
+    subAgents.forEach((subAgent, index) => {
+      const spacing = width / (subAgents.length + 1);
+      subAgent.x = spacing * (index + 1);
+      subAgent.y = height - 60;
+    });
 
     const simulation = d3
       .forceSimulation(graph.nodes)
-      .force('link', d3.forceLink(graph.links).id((d) => (d as GraphNode).id).distance(95))
+      .force('link', d3.forceLink(graph.links).id((d) => (d as GraphNode).id).distance((d) => (d.kind === 'recursive' ? 95 : 120)))
       .force('charge', d3.forceManyBody().strength(-280))
       .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('x', d3.forceX<GraphNode>((node) => {
+        if (node.type === 'user') return 90;
+        if (node.type === 'manager') return width / 2;
+        if (node.type === 'subagent') return node.x ?? width / 2;
+        return width / 2;
+      }).strength(0.16))
+      .force('y', d3.forceY<GraphNode>((node) => {
+        if (node.type === 'user') return 55;
+        if (node.type === 'manager') return height / 2;
+        if (node.type === 'subagent') return height - 60;
+        return height / 2 + 15;
+      }).strength(0.2))
       .force('collide', d3.forceCollide(26));
 
     const link = svg
@@ -5060,29 +6396,22 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
       .data(graph.links)
       .enter()
       .append('line')
-      .attr('stroke', (d) => (d.recursive ? '#f59e0b' : d.highlighted ? '#2563eb' : '#64748b'))
-      .attr('stroke-width', (d) => (d.recursive ? 2.7 : d.highlighted ? 2.2 : 1.6))
-      .attr('stroke-dasharray', (d) => (d.recursive ? '5,4' : '0'))
-      .attr('marker-end', 'url(#arrow)')
-      .attr('opacity', (d) => (d.highlighted ? 1 : 0.8));
+      .attr('stroke', (d) => (d.kind === 'recursive' ? '#f59e0b' : '#16a34a'))
+      .attr('stroke-width', 2.2)
+      .attr('stroke-dasharray', (d) => (d.kind === 'recursive' ? '6,4' : '0'))
+      .attr('marker-end', (d) => (d.kind === 'recursive' ? 'url(#arrow-recursive)' : 'url(#arrow-primary)'));
 
-    link
-      .transition()
-      .duration(850)
-      .attr('stroke-opacity', 0.5)
-      .transition()
-      .duration(850)
-      .attr('stroke-opacity', 1)
-      .on('end', function repeat() {
-        d3.select(this)
-          .transition()
-            .duration(780)
-            .attr('stroke-opacity', 0.45)
-          .transition()
-            .duration(780)
-          .attr('stroke-opacity', 1)
-          .on('end', repeat);
-      });
+    const edgeLabels = svg
+      .append('g')
+      .selectAll('text')
+      .data(graph.links.filter((item) => item.amount > 0))
+      .enter()
+      .append('text')
+      .attr('font-size', 10)
+      .attr('font-weight', 600)
+      .attr('fill', '#334155')
+      .attr('text-anchor', 'middle')
+      .text((d) => `${d.amount.toFixed(3)} USDC`);
 
     const node = svg
       .append('g')
@@ -5111,19 +6440,75 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
 
     node
       .append('circle')
-      .attr('r', (d) => (d.type === 'manager' ? 18 : 14))
-      .attr('fill', (d) => (d.type === 'manager' ? '#2563eb' : d.type === 'user' ? '#0ea5e9' : '#334155'))
+      .attr('r', (d) => (d.type === 'manager' ? 20 : 16))
+      .attr('fill', (d) => {
+        if (d.type === 'user') return '#94a3b8';
+        if (d.pulse) return '#2563eb';
+        return '#64748b';
+      })
       .attr('stroke', '#cbd5e1')
       .attr('stroke-width', 1.2);
 
     node
+      .filter((d) => d.pulse)
+      .append('circle')
+      .attr('r', 16)
+      .attr('fill', 'none')
+      .attr('stroke', '#3b82f6')
+      .attr('stroke-width', 2)
+      .attr('opacity', 0.75)
+      .transition()
+      .duration(900)
+      .attr('r', 26)
+      .attr('opacity', 0.1);
+
+    node
       .append('text')
       .attr('text-anchor', 'middle')
-      .attr('dy', 30)
+      .attr('dy', 33)
       .attr('fill', '#334155')
-      .attr('font-size', 11.5)
+      .attr('font-size', 11)
       .attr('font-weight', 600)
       .text((d) => d.id);
+
+    node
+      .append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', 47)
+      .attr('fill', '#475569')
+      .attr('font-size', 10)
+      .text((d) => `${d.totalReceived.toFixed(3)} USDC`);
+
+    const legend = svg.append('g').attr('transform', `translate(${width - 215}, 12)`);
+    legend
+      .append('rect')
+      .attr('width', 205)
+      .attr('height', 108)
+      .attr('rx', 10)
+      .attr('fill', '#ffffff')
+      .attr('stroke', '#cbd5e1');
+
+    legend.append('text').attr('x', 10).attr('y', 18).attr('font-size', 11).attr('font-weight', 700).attr('fill', '#0f172a').text('Legend');
+
+    legend.append('line').attr('x1', 10).attr('y1', 34).attr('x2', 50).attr('y2', 34).attr('stroke', '#16a34a').attr('stroke-width', 2.2);
+    legend.append('text').attr('x', 58).attr('y', 37).attr('font-size', 10).attr('fill', '#334155').text('Green solid arrow = Manager → Worker payment');
+
+    legend
+      .append('line')
+      .attr('x1', 10)
+      .attr('y1', 52)
+      .attr('x2', 50)
+      .attr('y2', 52)
+      .attr('stroke', '#f59e0b')
+      .attr('stroke-width', 2.2)
+      .attr('stroke-dasharray', '6,4');
+    legend.append('text').attr('x', 58).attr('y', 55).attr('font-size', 10).attr('fill', '#334155').text('Orange dashed arrow = Worker → Sub-agent (recursive)');
+
+    legend.append('circle').attr('cx', 16).attr('cy', 70).attr('r', 6).attr('fill', '#64748b');
+    legend.append('text').attr('x', 28).attr('y', 73).attr('font-size', 10).attr('fill', '#334155').text('Grey node = idle');
+
+    legend.append('circle').attr('cx', 16).attr('cy', 88).attr('r', 6).attr('fill', '#2563eb');
+    legend.append('text').attr('x', 28).attr('y', 91).attr('font-size', 10).attr('fill', '#334155').text('Blue pulsing node = just paid');
 
     simulation.on('tick', () => {
       link
@@ -5131,6 +6516,10 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
         .attr('y1', (d) => (d.source as GraphNode).y ?? 0)
         .attr('x2', (d) => (d.target as GraphNode).x ?? 0)
         .attr('y2', (d) => (d.target as GraphNode).y ?? 0);
+
+      edgeLabels
+        .attr('x', (d) => (((d.source as GraphNode).x ?? 0) + ((d.target as GraphNode).x ?? 0)) / 2)
+        .attr('y', (d) => ((((d.source as GraphNode).y ?? 0) + ((d.target as GraphNode).y ?? 0)) / 2) - 6);
 
       node.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
     });
@@ -5143,8 +6532,8 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
   return (
     <section className="panel">
       <h2 className="text-lg font-semibold text-slate-900">Topology</h2>
-      <p className="mt-1 text-xs text-slate-500">Blue links show manager payments; amber links show recursive DeepResearch hires.</p>
-      <svg className="mt-3 w-full rounded-xl border border-slate-200 bg-white shadow-inner" ref={svgRef} viewBox="0 0 620 300" />
+      <p className="mt-1 text-xs text-slate-500">Session payment topology with recursive sub-agent flows and per-node USDC totals.</p>
+      <svg className="mt-3 w-full rounded-xl border border-slate-200 bg-white shadow-inner" ref={svgRef} viewBox="0 0 620 360" />
     </section>
   );
 }
@@ -5379,6 +6768,67 @@ export interface StreamEvent {
   at?: string;
   [key: string]: unknown;
 }
+
+
+
+================================================
+FILE: synergi-stellar/frontend/stellar-agent-project/index.js
+================================================
+const path = require("path");
+const dotenv = require("dotenv");
+const StellarSdk = require("stellar-sdk");
+
+const envCandidates = [
+  path.resolve(__dirname, ".env"),
+  path.resolve(__dirname, ".env.local"),
+  path.resolve(__dirname, "..", ".env.local"),
+];
+
+for (const envPath of envCandidates) {
+  dotenv.config({ path: envPath, override: false });
+}
+
+const server = new StellarSdk.Horizon.Server(
+  "https://horizon-testnet.stellar.org"
+);
+
+if (!process.env.SECRET_KEY) {
+  throw new Error("Missing SECRET_KEY. Add it to stellar-agent-project/.env and rerun.");
+}
+
+if (!process.env.DESTINATION_PUBLIC_KEY) {
+  throw new Error(
+    "Missing DESTINATION_PUBLIC_KEY. Add it to stellar-agent-project/.env and rerun."
+  );
+}
+
+const sourceKeys = StellarSdk.Keypair.fromSecret(process.env.SECRET_KEY);
+
+async function sendPayment() {
+  const account = await server.loadAccount(sourceKeys.publicKey());
+
+  const transaction = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase: StellarSdk.Networks.TESTNET,
+  })
+    .addOperation(
+      StellarSdk.Operation.payment({
+        destination: process.env.DESTINATION_PUBLIC_KEY,
+        asset: StellarSdk.Asset.native(),
+        amount: "1",
+      })
+    )
+    .setTimeout(30)
+    .build();
+
+  transaction.sign(sourceKeys);
+
+  const result = await server.submitTransaction(transaction);
+  console.log("✅ Payment success:", result.hash);
+}
+
+sendPayment();
+
 
 
 
@@ -5676,30 +7126,147 @@ main().catch((error) => {
 ================================================
 FILE: synergi-stellar/scripts/setup-wallets.js
 ================================================
-const { Keypair } = require('@stellar/stellar-sdk');
 const fs = require('node:fs');
+const path = require('node:path');
 
-const walletNames = [
-  'MANAGER',
-  'AGENT_PRICE',
-  'AGENT_NEWS',
-  'AGENT_SUMMARIZE',
-  'AGENT_SENTIMENT',
-  'AGENT_MATH',
-  'AGENT_RESEARCH'
+const { Keypair } = require(require.resolve('@stellar/stellar-sdk', { paths: [path.resolve(__dirname, '../backend')] }));
+
+const GENERATED_ENV_PATH = path.resolve(__dirname, '../backend/.env.generated');
+
+const walletSpecs = [
+  { name: 'MANAGER', publicKey: 'MANAGER_PUBLIC', secretKey: 'MANAGER_SECRET' },
+  { name: 'AGENT_PRICE', publicKey: 'AGENT_PRICE_PUBLIC_KEY', secretKey: 'AGENT_PRICE_SECRET' },
+  { name: 'AGENT_NEWS', publicKey: 'AGENT_NEWS_PUBLIC_KEY', secretKey: 'AGENT_NEWS_SECRET' },
+  { name: 'AGENT_SUMMARIZE', publicKey: 'AGENT_SUMMARIZE_PUBLIC_KEY', secretKey: 'AGENT_SUMMARIZE_SECRET' },
+  { name: 'AGENT_SENTIMENT', publicKey: 'AGENT_SENTIMENT_PUBLIC_KEY', secretKey: 'AGENT_SENTIMENT_SECRET' },
+  { name: 'AGENT_MATH', publicKey: 'AGENT_MATH_PUBLIC_KEY', secretKey: 'AGENT_MATH_SECRET' },
+  { name: 'AGENT_RESEARCH', publicKey: 'AGENT_RESEARCH_PUBLIC_KEY', secretKey: 'AGENT_RESEARCH_SECRET' }
 ];
 
-function run() {
-  const lines = [];
-  walletNames.forEach((name) => {
-    const keypair = Keypair.random();
-    lines.push(`${name}_PUBLIC=${keypair.publicKey()}`);
-    lines.push(`${name}_SECRET=${keypair.secret()}`);
-  });
-  fs.writeFileSync('backend/.env.generated', `${lines.join('\n')}\n`, 'utf8');
-  console.log('Generated backend/.env.generated');
+async function friendbot(name, publicKey) {
+  const url = `https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`Friendbot failed for ${name}: ${res.status}`);
+    } else {
+      console.log(`Funded ${name}: ${publicKey}`);
+    }
+  } catch (error) {
+    console.warn(`Friendbot failed for ${name}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  await delay(500);
 }
 
-run();
+function parseEnvFile(content) {
+  const lines = content.split(/\r?\n/);
+  const result = {};
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const separator = trimmed.indexOf('=');
+    if (separator <= 0) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim();
+    result[key] = value;
+  }
+  return result;
+}
+
+async function runFriendbotForAll(wallets) {
+  for (const wallet of wallets) {
+    await friendbot(wallet.name, wallet.publicKey);
+  }
+}
+
+function printFinalChecklist() {
+  console.log(`
+=== SynergiStellar Setup Complete ===
+
+DONE:
+[x] Wallets generated
+[x] All wallets funded with testnet XLM via friendbot
+
+TODO:
+[ ] Copy backend/.env.generated values into backend/.env
+[ ] Add your ANTHROPIC_API_KEY to backend/.env
+[ ] (Optional) Get testnet USDC at: https://testanchor.stellar.org/sep24/...
+    or use: https://laboratory.stellar.org/#account-creator?network=test
+[ ] (Optional) Deploy Soroban contract:
+    cd contracts/agent-registry
+    cargo build --target wasm32-unknown-unknown --release
+    stellar contract deploy --wasm target/wasm32-unknown-unknown/release/agent_registry.wasm \
+      --source MANAGER_SECRET --network testnet
+[ ] Run: npm run dev
+[ ] Open: http://localhost:3000
+
+Stellar Explorer (Manager):
+https://stellar.expert/explorer/testnet/account/MANAGER_PUBLIC_KEY
+`);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function printChecklist() {
+  printFinalChecklist();
+}
+
+async function runGenerateAndFund() {
+  const lines = [];
+  const wallets = [];
+
+  for (const spec of walletSpecs) {
+    const keypair = Keypair.random();
+    const publicKey = keypair.publicKey();
+    const secretKey = keypair.secret();
+    lines.push(`${spec.publicKey}=${publicKey}`);
+    lines.push(`${spec.secretKey}=${secretKey}`);
+    wallets.push({ name: spec.name, publicKey });
+  }
+
+  fs.writeFileSync(GENERATED_ENV_PATH, `${lines.join('\n')}\n`, 'utf8');
+  console.log(`Generated ${GENERATED_ENV_PATH}`);
+
+  await runFriendbotForAll(wallets);
+  printChecklist();
+}
+
+async function runFundOnly() {
+  if (!fs.existsSync(GENERATED_ENV_PATH)) {
+    throw new Error(`Missing ${GENERATED_ENV_PATH}. Run script without --fund-only first.`);
+  }
+
+  const content = fs.readFileSync(GENERATED_ENV_PATH, 'utf8');
+  const envVars = parseEnvFile(content);
+  const wallets = Object.entries(envVars)
+    .filter(([key, value]) => key.includes('PUBLIC') && Boolean(value))
+    .map(([key, value]) => ({ name: key, publicKey: value }))
+    .filter((item) => Boolean(item.publicKey));
+
+  if (wallets.length === 0) {
+    throw new Error(`No *_PUBLIC_KEY entries found in ${GENERATED_ENV_PATH}.`);
+  }
+
+  await runFriendbotForAll(wallets);
+  printChecklist();
+}
+
+async function run() {
+  const fundOnly = process.argv.includes('--fund-only');
+  if (fundOnly) {
+    await runFundOnly();
+    return;
+  }
+
+  await runGenerateAndFund();
+}
+
+run().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
 
 

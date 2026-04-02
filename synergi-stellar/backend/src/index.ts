@@ -187,8 +187,14 @@ app.get('/api/transactions', (req, res) => {
   );
 });
 
-app.get('/api/wallet/balance', (_, res) => {
-  res.json(ok(getManagerWalletBalance()));
+app.get('/api/wallet/balance', async (_, res) => {
+  try {
+    const balance = await getManagerWalletBalance();
+    res.json(ok(balance));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json(fail({ code: 'WALLET_BALANCE_FETCH_FAILED', message }));
+  }
 });
 
 const chainConfigHandler = (_: express.Request, res: express.Response) => {
@@ -206,7 +212,7 @@ const chainConfigHandler = (_: express.Request, res: express.Response) => {
 app.get('/api/chain/config', chainConfigHandler);
 app.get('/chain/config', chainConfigHandler);
 
-app.post('/api/wallet/create', (req, res) => {
+app.post('/api/wallet/create', async (req, res) => {
   const parsed = walletCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json(
@@ -219,8 +225,13 @@ app.post('/api/wallet/create', (req, res) => {
     return;
   }
   const name = String(parsed.data.name ?? `Agent-${randomUUID().slice(0, 8)}`);
-  const wallet = createSponsoredWallet(name);
-  res.json(ok(wallet));
+  try {
+    const wallet = await createSponsoredWallet(name);
+    res.json(ok(wallet));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json(fail({ code: 'WALLET_CREATE_FAILED', message }));
+  }
 });
 
 function startServer(startPort: number, attemptsLeft = 5): void {

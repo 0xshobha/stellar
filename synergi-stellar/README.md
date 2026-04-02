@@ -20,35 +20,40 @@ synergi-stellar/
 - Rust + Cargo (for Soroban contract build)
 - Stellar CLI (optional for on-chain deploy)
 
-## Setup
+## Quick local setup (5 steps)
 
-1. Install dependencies:
+1. Generate and fund manager + 6 agent wallets:
 
 ```bash
-npm install
-npm run install:all
+node scripts/setup-wallets.js
 ```
 
-2. Configure backend environment:
+2. Copy generated wallet variables into backend env:
 
 ```bash
 cp backend/.env.example backend/.env
+# then copy values from backend/.env.generated into backend/.env
 ```
 
-3. Configure frontend environment:
+3. Add your Groq key in backend env (free-tier friendly):
 
 ```bash
-cp frontend/.env.local.example frontend/.env.local
+GROQ_API_KEY=<your-groq-cloud-api-key>
 ```
 
-## Run locally
+4. Start local services from repo root:
 
 ```bash
 npm run dev
 ```
 
-- Backend: http://localhost:4000
-- Frontend: http://localhost:3000
+5. Open the app:
+
+- http://localhost:3000
+
+Explorer link pattern for transactions:
+
+- https://stellar.expert/explorer/testnet/tx/{hash}
 
 ## Backend server deployment
 
@@ -79,6 +84,7 @@ X402_ENFORCE=false
 ```
 
 Notes:
+
 - Keep `PORT` aligned with your platform-provided port if required.
 - `HOST=0.0.0.0` allows external access through your reverse proxy or load balancer.
 
@@ -253,45 +259,45 @@ Set `BACKEND_URL` if backend is not on localhost:4000.
 
 ### Backend (`backend/.env`)
 
-| Key | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| NODE_ENV | Yes | development | Runtime mode (`development`, `test`, `production`) |
-| PORT | Yes | 4000 | Backend listen port |
-| HOST | Yes | 0.0.0.0 | Bind address for server process |
-| BACKEND_BASE_URL | Yes | http://localhost:4000 | Base URL used by internal manager-worker calls |
-| LOG_LEVEL | Recommended | info | Terminal log level (`debug`, `info`, `warn`, `error`) |
-| ANTHROPIC_API_KEY | Optional | empty | Enables Anthropic planner/summarizer model calls |
-| GROQ_API_KEY | Optional | empty | Reserved for alternate LLM provider integration |
-| MANAGER_SECRET_KEY | Optional (required for real wallet) | empty | Manager Stellar secret key |
-| STELLAR_NETWORK | Yes | testnet | Stellar network (`testnet` or `mainnet`) |
-| X402_MODE | Yes | mock | x402 processing mode (`mock` or `real`) |
-| X402_REAL_ONLY | Optional | false | Disable fallback when real mode is expected |
-| FACILITATOR_URL | Optional | Heroku facilitator URL | x402 facilitator endpoint |
-| X402_MAX_TIMEOUT_SECONDS | Optional | 90 | Max timeout for x402 requests |
-| X402_USDC_ASSET_ADDRESS | Optional | empty | USDC asset address for real settlement |
-| AGENT_PRICE_PUBLIC_KEY | Optional (real mode) | empty | Stellar public key for `PriceFeed` agent |
-| AGENT_NEWS_PUBLIC_KEY | Optional (real mode) | empty | Stellar public key for `NewsDigest` agent |
-| AGENT_SUMMARIZER_PUBLIC_KEY | Optional (real mode) | empty | Stellar public key for `Summarizer` agent |
-| AGENT_SENTIMENT_PUBLIC_KEY | Optional (real mode) | empty | Stellar public key for `SentimentAI` agent |
-| AGENT_MATH_PUBLIC_KEY | Optional (real mode) | empty | Stellar public key for `MathSolver` agent |
-| AGENT_RESEARCH_PUBLIC_KEY | Optional (real mode) | empty | Stellar public key for `DeepResearch` agent |
-| CONTRACT_ID | Optional | LOCAL_MOCK_CONTRACT | Soroban agent registry contract id |
-| X402_ENFORCE | Optional | false | Enforce payment policy without relaxed fallback |
+| Key                         | Required                            | Default                | Purpose                                                  |
+| --------------------------- | ----------------------------------- | ---------------------- | -------------------------------------------------------- |
+| NODE_ENV                    | Yes                                 | development            | Runtime mode (`development`, `test`, `production`)       |
+| PORT                        | Yes                                 | 4000                   | Backend listen port                                      |
+| HOST                        | Yes                                 | 0.0.0.0                | Bind address for server process                          |
+| BACKEND_BASE_URL            | Yes                                 | http://localhost:4000  | Base URL used by internal manager-worker calls           |
+| LOG_LEVEL                   | Recommended                         | info                   | Terminal log level (`debug`, `info`, `warn`, `error`)    |
+| ANTHROPIC_API_KEY           | Optional                            | empty                  | Optional Anthropic key if you enable Claude planner path |
+| GROQ_API_KEY                | Recommended                         | empty                  | Preferred free-tier LLM key for local hackathon setup    |
+| MANAGER_SECRET_KEY          | Optional (required for real wallet) | empty                  | Manager Stellar secret key                               |
+| STELLAR_NETWORK             | Yes                                 | testnet                | Stellar network (`testnet` or `mainnet`)                 |
+| X402_MODE                   | Yes                                 | mock                   | x402 processing mode (`mock` or `real`)                  |
+| X402_REAL_ONLY              | Optional                            | false                  | Disable fallback when real mode is expected              |
+| FACILITATOR_URL             | Optional                            | Heroku facilitator URL | x402 facilitator endpoint                                |
+| X402_MAX_TIMEOUT_SECONDS    | Optional                            | 90                     | Max timeout for x402 requests                            |
+| X402_USDC_ASSET_ADDRESS     | Optional                            | empty                  | USDC asset address for real settlement                   |
+| AGENT_PRICE_PUBLIC_KEY      | Optional (real mode)                | empty                  | Stellar public key for `PriceFeed` agent                 |
+| AGENT_NEWS_PUBLIC_KEY       | Optional (real mode)                | empty                  | Stellar public key for `NewsDigest` agent                |
+| AGENT_SUMMARIZER_PUBLIC_KEY | Optional (real mode)                | empty                  | Stellar public key for `Summarizer` agent                |
+| AGENT_SENTIMENT_PUBLIC_KEY  | Optional (real mode)                | empty                  | Stellar public key for `SentimentAI` agent               |
+| AGENT_MATH_PUBLIC_KEY       | Optional (real mode)                | empty                  | Stellar public key for `MathSolver` agent                |
+| AGENT_RESEARCH_PUBLIC_KEY   | Optional (real mode)                | empty                  | Stellar public key for `DeepResearch` agent              |
+| CONTRACT_ID                 | Optional                            | LOCAL_MOCK_CONTRACT    | Soroban agent registry contract id                       |
+| X402_ENFORCE                | Optional                            | false                  | Enforce payment policy without relaxed fallback          |
 
 ### Frontend (`frontend/.env.local`)
 
-| Key | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| NEXT_PUBLIC_BACKEND_URL | Yes | http://localhost:4000 | Backend base URL for API proxy/SSE |
-| NEXT_PUBLIC_STELLAR_NETWORK | Recommended | testnet | Network label used in UI/runtime assumptions |
-| NEXT_PUBLIC_SITE_URL | Recommended | http://localhost:3000 | Canonical site URL for metadata, sitemap, robots |
+| Key                         | Required    | Default               | Purpose                                          |
+| --------------------------- | ----------- | --------------------- | ------------------------------------------------ |
+| NEXT_PUBLIC_BACKEND_URL     | Yes         | http://localhost:4000 | Backend base URL for API proxy/SSE               |
+| NEXT_PUBLIC_STELLAR_NETWORK | Recommended | testnet               | Network label used in UI/runtime assumptions     |
+| NEXT_PUBLIC_SITE_URL        | Recommended | http://localhost:3000 | Canonical site URL for metadata, sitemap, robots |
 
 ### MCP server (`mcp-server` process env)
 
-| Key | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| BACKEND_URL | Yes | http://localhost:4000 | Backend URL used by MCP tools |
-| REQUEST_TIMEOUT_MS | Optional | 12000 | Timeout per backend request from MCP tools |
+| Key                | Required | Default               | Purpose                                    |
+| ------------------ | -------- | --------------------- | ------------------------------------------ |
+| BACKEND_URL        | Yes      | http://localhost:4000 | Backend URL used by MCP tools              |
+| REQUEST_TIMEOUT_MS | Optional | 12000                 | Timeout per backend request from MCP tools |
 
 ## Freighter + Soroban (what to change)
 
@@ -299,42 +305,42 @@ If you will use Freighter wallet and Soroban testnet/mainnet flows, update these
 
 ### Backend required changes (`backend/.env`)
 
-| Key | Example | Why |
-| --- | --- | --- |
-| NODE_ENV | production | Server deployment mode |
-| PORT | 4000 | Server port (or platform provided port) |
-| HOST | 0.0.0.0 | Expose backend for reverse proxy/load balancer |
-| BACKEND_BASE_URL | https://api.yourdomain.com | Correct absolute backend URL |
-| STELLAR_NETWORK | testnet | Must match Freighter selected network |
-| CONTRACT_ID | C... | Deployed Soroban contract id |
-| X402_MODE | real | Use real x402 flow |
-| X402_REAL_ONLY | true | Prevent mock fallback in production |
-| X402_ENFORCE | true | Enforce paid flow |
-| MANAGER_SECRET_KEY | S... | Manager signing key |
-| X402_USDC_ASSET_ADDRESS | C... or G... | Asset address for USDC settlement |
-| AGENT_PRICE_PUBLIC_KEY | G... | Worker wallet public key |
-| AGENT_NEWS_PUBLIC_KEY | G... | Worker wallet public key |
-| AGENT_SUMMARIZER_PUBLIC_KEY | G... | Worker wallet public key |
-| AGENT_SENTIMENT_PUBLIC_KEY | G... | Worker wallet public key |
-| AGENT_MATH_PUBLIC_KEY | G... | Worker wallet public key |
-| AGENT_RESEARCH_PUBLIC_KEY | G... | Worker wallet public key |
+| Key                         | Example                    | Why                                            |
+| --------------------------- | -------------------------- | ---------------------------------------------- |
+| NODE_ENV                    | production                 | Server deployment mode                         |
+| PORT                        | 4000                       | Server port (or platform provided port)        |
+| HOST                        | 0.0.0.0                    | Expose backend for reverse proxy/load balancer |
+| BACKEND_BASE_URL            | https://api.yourdomain.com | Correct absolute backend URL                   |
+| STELLAR_NETWORK             | testnet                    | Must match Freighter selected network          |
+| CONTRACT_ID                 | C...                       | Deployed Soroban contract id                   |
+| X402_MODE                   | real                       | Use real x402 flow                             |
+| X402_REAL_ONLY              | true                       | Prevent mock fallback in production            |
+| X402_ENFORCE                | true                       | Enforce paid flow                              |
+| MANAGER_SECRET_KEY          | S...                       | Manager signing key                            |
+| X402_USDC_ASSET_ADDRESS     | C... or G...               | Asset address for USDC settlement              |
+| AGENT_PRICE_PUBLIC_KEY      | G...                       | Worker wallet public key                       |
+| AGENT_NEWS_PUBLIC_KEY       | G...                       | Worker wallet public key                       |
+| AGENT_SUMMARIZER_PUBLIC_KEY | G...                       | Worker wallet public key                       |
+| AGENT_SENTIMENT_PUBLIC_KEY  | G...                       | Worker wallet public key                       |
+| AGENT_MATH_PUBLIC_KEY       | G...                       | Worker wallet public key                       |
+| AGENT_RESEARCH_PUBLIC_KEY   | G...                       | Worker wallet public key                       |
 
 ### Frontend required changes (`frontend/.env.local`)
 
-| Key | Example | Why |
-| --- | --- | --- |
-| NEXT_PUBLIC_BACKEND_URL | https://api.yourdomain.com | Frontend API/SSE target |
-| NEXT_PUBLIC_STELLAR_NETWORK | testnet | Should match Freighter network |
-| NEXT_PUBLIC_SITE_URL | https://app.yourdomain.com | Correct metadata/canonical URLs |
+| Key                                    | Example                                                  | Why                                                   |
+| -------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| NEXT_PUBLIC_BACKEND_URL                | https://api.yourdomain.com                               | Frontend API/SSE target                               |
+| NEXT_PUBLIC_STELLAR_NETWORK            | testnet                                                  | Should match Freighter network                        |
+| NEXT_PUBLIC_SITE_URL                   | https://app.yourdomain.com                               | Correct metadata/canonical URLs                       |
 | NEXT_PUBLIC_REQUIRED_FREIGHTER_ADDRESS | GD6W54KPBSMLD5ZKYNF7CQFKJUZHMRTC6TN3MVFRGCR2Q7JYCYDGRSWJ | Enforce the exact Freighter account on Connect Wallet |
 
 ### Freighter prerequisites
 
-| Item | Required value |
-| --- | --- |
-| Freighter network | Same as `STELLAR_NETWORK` |
-| Wallet funded | Testnet: Friendbot funded account |
-| Browser extension | Freighter installed and unlocked |
+| Item              | Required value                    |
+| ----------------- | --------------------------------- |
+| Freighter network | Same as `STELLAR_NETWORK`         |
+| Wallet funded     | Testnet: Friendbot funded account |
+| Browser extension | Freighter installed and unlocked  |
 
 ## End-to-end user flows
 
@@ -403,16 +409,18 @@ If you will use Freighter wallet and Soroban testnet/mainnet flows, update these
 
 ## Real vs Mock
 
-- x402 integration supports two modes:
-  - mock mode: `X402_MODE=mock` (default), local simulation
-  - real mode: `X402_MODE=real`, official facilitator verification/settlement with `@x402/stellar`
-- To enforce demo-day fail-fast behavior, set:
-  - `X402_ENFORCE=true`
-  - `X402_MODE=real`
-  - `X402_REAL_ONLY=true`
-- In real mode, set manager and agent Stellar keys in `backend/.env`:
-  - `MANAGER_SECRET_KEY`
-  - `AGENT_PRICE_PUBLIC_KEY`, `AGENT_NEWS_PUBLIC_KEY`, `AGENT_SUMMARIZER_PUBLIC_KEY`, `AGENT_SENTIMENT_PUBLIC_KEY`, `AGENT_MATH_PUBLIC_KEY`, `AGENT_RESEARCH_PUBLIC_KEY`
-- Wallet and transaction explorer links: real transaction URLs; simulated paths are clearly labeled when not settled
-- Worker data sources: mocked deterministic responses
-- Soroban contract: real Rust scaffold ready for testnet deployment
+| Capability       | Mock mode (`X402_MODE=mock`)                | Real mode (`X402_MODE=real`)                                               |
+| ---------------- | ------------------------------------------- | -------------------------------------------------------------------------- |
+| x402 payments    | Simulated payment requirement/receipt flow  | Facilitator verification + settlement via `@x402/stellar`                  |
+| Wallet balances  | Local fallback only when key not configured | Live Horizon balance lookup (`/accounts/{publicKey}`)                      |
+| Soroban contract | In-memory registry is source of truth       | In-memory registry still active; optional Soroban wiring via `CONTRACT_ID` |
+
+Recommended real-mode env flags for demo-day fail-fast:
+
+- `X402_ENFORCE=true`
+- `X402_MODE=real`
+- `X402_REAL_ONLY=true`
+
+Stellar explorer transaction pattern:
+
+- https://stellar.expert/explorer/testnet/tx/{hash}

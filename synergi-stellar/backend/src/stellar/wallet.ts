@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
 import { env } from '../config.js';
 
+const HORIZON_TESTNET_ACCOUNT_URL = 'https://horizon-testnet.stellar.org/accounts';
+const TESTNET_USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+
 interface WalletBalance {
   publicKey: string;
   xlm: string;
@@ -28,38 +31,105 @@ export interface CreatedWallet {
 const managerPublic = env.MANAGER_SECRET_KEY ? Keypair.fromSecret(env.MANAGER_SECRET_KEY).publicKey() : 'UNCONFIGURED_MANAGER';
 const BALANCE_TTL_MS = 20_000;
 let cachedBalance: WalletBalanceCache | null = null;
+let balanceRefreshInFlight: Promise<void> | null = null;
 
-export function getManagerWalletBalance(): WalletBalance {
+export async function getManagerWalletBalance(): Promise<WalletBalance> {
   const now = Date.now();
   if (cachedBalance && cachedBalance.expiresAt > now) {
     return cachedBalance.value;
   }
 
-  const value: WalletBalance = {
-    publicKey: managerPublic,
-    xlm: '1000.0000000',
-    usdc: '250.0000000',
-    network: env.STELLAR_NETWORK,
-    updatedAt: new Date(now).toISOString()
-  };
+  if (!balanceRefreshInFlight) {
+    balanceRefreshInFlight = refreshManagerBalance().finally(() => {
+      balanceRefreshInFlight = null;
+    });
+  }
 
+  return cachedBalance?.value ?? buildFallbackBalance(managerPublic, now);
+}
+
+export async function createSponsoredWallet(agentName: string): Promise<CreatedWallet> {
+  const keypair = Keypair.random();
+  try {
+    await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(keypair.publicKey())}`);
+  } catch {}
+
+  const publicKey = keypair.publicKey();
+
+  return {
+    walletId: randomUUID(),
+    name: agentName,
+    publicKey,
+    secretKey: keypair.secret(),
+    xlmFunded: '10000',
+    network: env.STELLAR_NETWORK,
+    createdAt: new Date().toISOString()
+  };
+}
+
+async function refreshManagerBalance(): Promise<void> {
+  const now = Date.now();
+  const value = await fetchWalletBalance(managerPublic, now);
   cachedBalance = {
     value,
     expiresAt: now + BALANCE_TTL_MS
   };
-
-  return value;
 }
 
-export function createSponsoredWallet(agentName: string): CreatedWallet {
-  const keypair = Keypair.random();
+async function fetchWalletBalance(publicKey: string, now: number): Promise<WalletBalance> {
+  if (!publicKey || publicKey === 'UNCONFIGURED_MANAGER') {
+    return buildFallbackBalance(publicKey, now);
+  }
+
+  try {
+    const response = await fetch(`${HORIZON_TESTNET_ACCOUNT_URL}/${encodeURIComponent(publicKey)}`);
+
+    if (response.status === 404) {
+      console.warn(`[wallet] Horizon account not found for ${publicKey}; returning fallback balance.`);
+      return buildFallbackBalance(publicKey, now);
+    }
+
+    if (!response.ok) {
+      console.warn(`[wallet] Horizon fetch failed for ${publicKey} with status ${response.status}; returning fallback balance.`);
+      return buildFallbackBalance(publicKey, now);
+    }
+
+    const payload = (await response.json()) as {
+      balances?: Array<{
+        asset_type?: string;
+        asset_code?: string;
+        asset_issuer?: string;
+        balance?: string;
+      }>;
+    };
+
+    const balances = Array.isArray(payload.balances) ? payload.balances : [];
+    const nativeXlm = balances.find((b) => b.asset_type === 'native')?.balance ?? '0';
+    const usdc =
+      balances.find(
+        (b) => b.asset_code === 'USDC' && b.asset_issuer === TESTNET_USDC_ISSUER
+      )?.balance ?? '0';
+
+    return {
+      publicKey,
+      xlm: nativeXlm,
+      usdc,
+      network: env.STELLAR_NETWORK,
+      updatedAt: new Date(now).toISOString()
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[wallet] Horizon network error for ${publicKey}: ${message}; returning fallback balance.`);
+    return buildFallbackBalance(publicKey, now);
+  }
+}
+
+function buildFallbackBalance(publicKey: string, now: number): WalletBalance {
   return {
-    walletId: randomUUID(),
-    name: agentName,
-    publicKey: keypair.publicKey(),
-    secretKey: keypair.secret(),
-    xlmFunded: '1.5',
+    publicKey,
+    xlm: '0.0000000',
+    usdc: '0.0000000',
     network: env.STELLAR_NETWORK,
-    createdAt: new Date().toISOString()
+    updatedAt: new Date(now).toISOString()
   };
 }

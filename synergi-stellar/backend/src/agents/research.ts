@@ -6,30 +6,39 @@ import { x402FetchJson } from '../x402/client.js';
 
 const router = Router();
 const MAX_DEPTH = 2;
+const AGENT_NAME = 'DeepResearch';
+const PRICE_USDC = 0.01;
 
 function getBackendBaseUrl(): string {
   return process.env.RUNTIME_BACKEND_BASE_URL || env.BACKEND_BASE_URL;
 }
 
-router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
+router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   const input = String(req.body?.input ?? 'research topic');
   const depth = Number(req.body?.depth ?? 0);
   const sessionId = String(req.header('x-session-id') ?? randomUUID());
+  const timestamp = new Date().toISOString();
+
   if (depth >= MAX_DEPTH) {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json({
-      agent: 'DeepResearch',
-      pricePaid: 0.01,
+      agent: AGENT_NAME,
+      pricePaid: PRICE_USDC,
       data: {
         topic: input,
         depth,
         maxDepth: MAX_DEPTH,
         agentsUsed: [],
-        totalCost: 0.01,
+        subTransactions: [],
+        totalCost: PRICE_USDC,
         result: {
           summary: 'Depth limit reached for recursive research execution.'
         }
       },
-      txHash: fakeTxHash('res')
+      txHash: fakeTxHash(AGENT_NAME),
+      agentPublicKey: env.AGENT_RESEARCH_PUBLIC_KEY ?? 'UNCONFIGURED_AGENT_RESEARCH_PUBLIC_KEY',
+      depth,
+      timestamp
     });
     return;
   }
@@ -73,7 +82,7 @@ router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
         endpoint: entry.endpoint,
         data: payload.data,
         pricePaid: Number(payload.pricePaid ?? entry.price),
-        txHash: String(payload.txHash ?? fakeTxHash(entry.endpoint)),
+        txHash: String(payload.txHash ?? fakeTxHash(entry.agent)),
         fallbackUsed: response.fallbackUsed,
         attempts: response.attempts
       };
@@ -102,9 +111,10 @@ router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
   const subAgentCost = successful.reduce((sum, item) => sum + item.pricePaid, 0);
   const aggregated = Object.fromEntries(successful.map((item) => [item.agent, item.data]));
 
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.json({
-    agent: 'DeepResearch',
-    pricePaid: 0.01,
+    agent: AGENT_NAME,
+    pricePaid: PRICE_USDC,
     data: {
       topic: input,
       depth,
@@ -119,29 +129,29 @@ router.post('/', createPaywall(0.01, 'DeepResearch'), async (req, res) => {
         fallbackUsed: item.fallbackUsed,
         attempts: item.attempts
       })),
-      totalCost: Number((0.01 + subAgentCost).toFixed(6)),
+      totalCost: Number((PRICE_USDC + subAgentCost).toFixed(6)),
       failed,
       result: aggregated
     },
-    txHash: fakeTxHash('res')
+    txHash: fakeTxHash(AGENT_NAME),
+    agentPublicKey: env.AGENT_RESEARCH_PUBLIC_KEY ?? 'UNCONFIGURED_AGENT_RESEARCH_PUBLIC_KEY',
+    depth,
+    timestamp
   });
 });
 
 export default router;
 
-function fakeTxHash(prefix: string): string {
-  return `mock-${prefix}-${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+function fakeTxHash(agentName: string): string {
+  return `mock-${agentName.toLowerCase()}-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 function buildSubAgentPlan(input: string): Array<{ agent: string; endpoint: string; price: number }> {
   const lower = input.toLowerCase();
   const plan: Array<{ agent: string; endpoint: string; price: number }> = [
-    { agent: 'Summarizer', endpoint: 'summarize', price: 0.001 }
+    { agent: 'Summarizer', endpoint: 'summarize', price: 0.001 },
+    { agent: 'SentimentAI', endpoint: 'sentiment', price: 0.001 }
   ];
-
-  if (lower.includes('sentiment') || lower.includes('risk') || lower.includes('opinion')) {
-    plan.push({ agent: 'SentimentAI', endpoint: 'sentiment', price: 0.001 });
-  }
 
   if (lower.includes('news') || lower.includes('headline')) {
     plan.push({ agent: 'NewsDigest', endpoint: 'news', price: 0.002 });

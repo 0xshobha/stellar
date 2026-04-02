@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { Keypair } from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
 dotenv.config();
@@ -11,15 +12,17 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
   MANAGER_SECRET_KEY: z.string().optional(),
+  MANAGER_PUBLIC_KEY: z.string().optional(),
   STELLAR_NETWORK: z.enum(['testnet', 'mainnet']).default('testnet'),
   X402_MODE: z.enum(['mock', 'real']).default('mock'),
   X402_REAL_ONLY: z.enum(['true', 'false']).default('false'),
   FACILITATOR_URL: z.string().url().default('https://x402-stellar-491bf9f7e30b.herokuapp.com'),
-  X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(90),
+  X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(300),
   X402_USDC_ASSET_ADDRESS: z.string().optional(),
   AGENT_PRICE_PUBLIC_KEY: z.string().optional(),
   AGENT_NEWS_PUBLIC_KEY: z.string().optional(),
   AGENT_SUMMARIZER_PUBLIC_KEY: z.string().optional(),
+  AGENT_SUMMARIZE_PUBLIC_KEY: z.string().optional(),
   AGENT_SENTIMENT_PUBLIC_KEY: z.string().optional(),
   AGENT_MATH_PUBLIC_KEY: z.string().optional(),
   AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
@@ -27,10 +30,37 @@ const envSchema = z.object({
   X402_ENFORCE: z.enum(['true', 'false']).default('false')
 });
 
-export const env = envSchema.parse(process.env);
+type ParsedEnv = z.infer<typeof envSchema>;
+type RuntimeEnv = Omit<ParsedEnv, 'AGENT_SUMMARIZER_PUBLIC_KEY' | 'MANAGER_PUBLIC_KEY'> & {
+  AGENT_SUMMARIZER_PUBLIC_KEY?: string;
+  MANAGER_PUBLIC_KEY?: string;
+};
+
+const parsedEnv = envSchema.parse(process.env);
+
+function deriveManagerPublicKey(): string | undefined {
+  if (parsedEnv.MANAGER_PUBLIC_KEY) return parsedEnv.MANAGER_PUBLIC_KEY;
+  if (!parsedEnv.MANAGER_SECRET_KEY) return undefined;
+
+  try {
+    return Keypair.fromSecret(parsedEnv.MANAGER_SECRET_KEY).publicKey();
+  } catch {
+    return undefined;
+  }
+}
+
+export const env: RuntimeEnv = {
+  ...parsedEnv,
+  MANAGER_PUBLIC_KEY: deriveManagerPublicKey(),
+  AGENT_SUMMARIZER_PUBLIC_KEY: parsedEnv.AGENT_SUMMARIZER_PUBLIC_KEY ?? parsedEnv.AGENT_SUMMARIZE_PUBLIC_KEY
+};
+
 export const isX402Enforced = env.X402_ENFORCE === 'true';
 export const isX402RealMode = env.X402_MODE === 'real';
 export const isX402RealOnly = env.X402_REAL_ONLY === 'true';
+
+const claudeEnabled = Boolean(env.ANTHROPIC_API_KEY || env.GROQ_API_KEY);
+console.log(`[Config] x402Mode=${env.X402_MODE} enforce=${env.X402_ENFORCE} network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`);
 
 const configuredAgentPublicKeys = {
   AGENT_PRICE_PUBLIC_KEY: env.AGENT_PRICE_PUBLIC_KEY,

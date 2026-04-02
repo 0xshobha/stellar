@@ -126,6 +126,32 @@ Verification endpoint for contract linkage:
 
 - `GET /api/chain/config` returns network, contract id, and x402 mode.
 
+## Vercel deployment (fixes NOT_FOUND)
+
+Deploy only the Next.js frontend app from `synergi-stellar/frontend`.
+
+If you import the whole repository and Vercel points to the wrong root, you can get `NOT_FOUND` even when code builds locally.
+
+### Vercel project settings
+
+- Framework Preset: `Next.js`
+- Root Directory: `synergi-stellar/frontend`
+- Build Command: `npm run build`
+- Install Command: `npm install`
+
+### Required Vercel environment variables (Frontend project)
+
+- `BACKEND_URL=https://<your-backend-domain>`
+- `NEXT_PUBLIC_BACKEND_URL=https://<your-backend-domain>`
+- `NEXT_PUBLIC_SITE_URL=https://<your-frontend-domain>`
+- `NEXT_PUBLIC_STELLAR_NETWORK=testnet` (or `mainnet`)
+- `NEXT_PUBLIC_REQUIRED_FREIGHTER_ADDRESS=<optional-wallet-public-key>`
+
+### Why NOT_FOUND happens here
+
+- Vercel receives requests at the deployed URL, but no Next.js app/routes are mounted at that root.
+- Most commonly this is a monorepo root-directory mismatch, not a TypeScript error.
+
 ## Build all workspaces
 
 ```bash

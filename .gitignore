@@ -15,12 +15,22 @@ out/
 coverage/
 .next/
 **/.next/
+.vercel/
+playwright-report/
+test-results/
 
 # TypeScript and tool caches
 *.tsbuildinfo
 .turbo/
 .cache/
 .eslintcache
+.npm/
+.pnpm-store/
+.yarn/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
 
 # Logs
 *.log
@@ -38,6 +48,8 @@ target/
 *.seed
 *.tmp
 *.temp
+.swp
+.swo
 backend/.env.generated
 synergi-stellar/backend/.env.generated
 

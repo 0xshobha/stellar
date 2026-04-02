@@ -34,29 +34,43 @@ function resolveBackendPath(path: string[]): string {
 }
 
 async function proxy(request: NextRequest, path: string[]): Promise<NextResponse> {
-  const BACKEND_URL = getBackendUrl();
-  const targetPath = resolveBackendPath(path);
-  const targetUrl = new URL(`${BACKEND_URL}${targetPath}`);
-  request.nextUrl.searchParams.forEach((value, key) => {
-    targetUrl.searchParams.set(key, value);
-  });
+  try {
+    const BACKEND_URL = getBackendUrl();
+    const targetPath = resolveBackendPath(path);
+    const targetUrl = new URL(`${BACKEND_URL}${targetPath}`);
+    request.nextUrl.searchParams.forEach((value, key) => {
+      targetUrl.searchParams.set(key, value);
+    });
 
-  const isBodyAllowed = !['GET', 'HEAD'].includes(request.method.toUpperCase());
-  const body = isBodyAllowed ? await request.text() : undefined;
+    const isBodyAllowed = !['GET', 'HEAD'].includes(request.method.toUpperCase());
+    const body = isBodyAllowed ? await request.text() : undefined;
 
-  const upstream = await fetch(targetUrl.toString(), {
-    method: request.method,
-    headers: {
-      'Content-Type': request.headers.get('content-type') ?? 'application/json',
-      Accept: request.headers.get('accept') ?? '*/*'
-    },
-    body
-  });
+    const upstream = await fetch(targetUrl.toString(), {
+      method: request.method,
+      headers: {
+        'Content-Type': request.headers.get('content-type') ?? 'application/json',
+        Accept: request.headers.get('accept') ?? '*/*'
+      },
+      body
+    });
 
-  return new NextResponse(upstream.body, {
-    status: upstream.status,
-    headers: pickHeaders(upstream.headers)
-  });
+    return new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: pickHeaders(upstream.headers)
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'BACKEND_PROXY_ERROR',
+          message: error instanceof Error ? error.message : 'Frontend proxy failed to reach backend',
+          hint: 'Set BACKEND_URL (or NEXT_PUBLIC_BACKEND_URL) to your backend origin in Vercel env.'
+        }
+      },
+      { status: 500 }
+    );
+  }
 }
 
 export async function GET(request: NextRequest, context: { params: { path: string[] } }) {

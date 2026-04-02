@@ -35,6 +35,7 @@ function formatUpdatedDate(value: string): string {
 
 export const dynamic = 'force-dynamic';
 const REQUIRED_FREIGHTER_ADDRESS = process.env.NEXT_PUBLIC_REQUIRED_FREIGHTER_ADDRESS?.trim() ?? '';
+const REQUIRED_STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK?.trim().toLowerCase() ?? '';
 
 type FreighterApi = {
   isConnected?: () => Promise<boolean>;
@@ -80,6 +81,14 @@ function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-6)}`;
 }
 
+function normalizeNetwork(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return 'unknown';
+  if (normalized.includes('testnet') || normalized.includes('test sdf network')) return 'testnet';
+  if (normalized.includes('mainnet') || normalized.includes('public global stellar network')) return 'mainnet';
+  return normalized;
+}
+
 export default function HomePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [events, setEvents] = useState<StreamEvent[]>([]);
@@ -102,7 +111,7 @@ export default function HomePage() {
         if (!connected) return;
         const [address, network] = await Promise.all([readWalletAddress(api), readWalletNetwork(api)]);
         setWalletAddress(address);
-        setWalletNetwork(network);
+        setWalletNetwork(normalizeNetwork(network));
       })
       .catch(() => {
         setWalletAddress(null);
@@ -124,13 +133,21 @@ export default function HomePage() {
       }
 
       const [address, network] = await Promise.all([readWalletAddress(api), readWalletNetwork(api)]);
+      const normalizedNetwork = normalizeNetwork(network);
       if (REQUIRED_FREIGHTER_ADDRESS && address !== REQUIRED_FREIGHTER_ADDRESS) {
         throw new Error(
           `Wrong wallet selected. Please switch Freighter account to ${REQUIRED_FREIGHTER_ADDRESS}.`
         );
       }
+
+      if (REQUIRED_STELLAR_NETWORK && normalizedNetwork !== REQUIRED_STELLAR_NETWORK) {
+        throw new Error(
+          `Wrong network selected. Please switch Freighter to ${REQUIRED_STELLAR_NETWORK}.`
+        );
+      }
+
       setWalletAddress(address);
-      setWalletNetwork(network);
+      setWalletNetwork(normalizedNetwork);
     } catch (error) {
       setWalletAddress(null);
       setWalletNetwork('');

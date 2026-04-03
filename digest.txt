@@ -14,6 +14,7 @@ Directory structure:
         ├── backend/
         │   ├── package.json
         │   ├── tsconfig.json
+        │   ├── .env.example
         │   ├── scripts/
         │   │   └── smoke-check.mjs
         │   └── src/
@@ -90,10 +91,12 @@ Directory structure:
         │   │       ├── docs.ts
         │   │       └── types.ts
         │   └── stellar-agent-project/
-        │       └── index.js
+        │       ├── index.js
+        │       └── .env.example
         ├── mcp-server/
         │   ├── package.json
         │   ├── tsconfig.json
+        │   ├── .env.example
         │   └── src/
         │       └── index.ts
         └── scripts/
@@ -2040,6 +2043,58 @@ FILE: synergi-stellar/backend/tsconfig.json
   ]
 }
 
+
+
+================================================
+FILE: synergi-stellar/backend/.env.example
+================================================
+# ── AI ─────────────────────────────────────────────────────────────────────
+ANTHROPIC_API_KEY=sk-ant-...   # Optional Claude key from console.anthropic.com
+GROQ_API_KEY=gsk_...           # Preferred LLM key from console.groq.com
+
+# ── Stellar Wallets (generate with: node scripts/setup-wallets.js) ─────────
+MANAGER_SECRET_KEY=S...        # Manager agent Stellar secret key
+MANAGER_PUBLIC_KEY=G...        # Manager agent Stellar public key (optional; derived from secret if omitted)
+
+MANAGER_PUBLIC=G...            # Compatibility alias emitted by scripts/setup-wallets.js
+MANAGER_SECRET=S...            # Compatibility alias emitted by scripts/setup-wallets.js
+
+AGENT_PRICE_PUBLIC_KEY=G...    # PriceFeed agent receives payments here
+AGENT_PRICE_SECRET=S...        # PriceFeed agent secret (for future signing)
+AGENT_NEWS_PUBLIC_KEY=G...     # NewsDigest agent payment recipient
+AGENT_NEWS_SECRET=S...         # NewsDigest agent secret
+AGENT_SUMMARIZER_PUBLIC_KEY=G... # Summarizer agent payment recipient
+AGENT_SUMMARIZE_PUBLIC_KEY=G...  # Alias supported by config.ts (SUMMARIZE vs SUMMARIZER)
+AGENT_SUMMARIZER_SECRET=S...     # Summarizer agent secret
+AGENT_SUMMARIZE_SECRET=S...      # Alias emitted by setup script
+AGENT_SENTIMENT_PUBLIC_KEY=G...  # SentimentAI agent payment recipient
+AGENT_SENTIMENT_SECRET=S...      # SentimentAI agent secret
+AGENT_MATH_PUBLIC_KEY=G...       # MathSolver agent payment recipient
+AGENT_MATH_SECRET=S...           # MathSolver agent secret
+AGENT_RESEARCH_PUBLIC_KEY=G...   # DeepResearch agent payment recipient
+AGENT_RESEARCH_SECRET=S...       # DeepResearch agent secret
+
+# ── Stellar Network ─────────────────────────────────────────────────────────
+STELLAR_NETWORK=testnet        # testnet or mainnet
+FACILITATOR_URL=https://x402-stellar-491bf9f7e30b.herokuapp.com  # Official x402 facilitator
+X402_USDC_ASSET_ADDRESS=       # Optional USDC asset address override for settlement metadata
+
+# ── Soroban Contract ────────────────────────────────────────────────────────
+CONTRACT_ID=LOCAL_MOCK_CONTRACT  # Replace after: stellar contract deploy ...
+
+# ── x402 Payment Mode ───────────────────────────────────────────────────────
+# X402_MODE: 'mock' = simulated payments, 'real' = actual Stellar USDC transfers
+X402_MODE=mock                 # Start with mock, switch to real once wallets are funded
+X402_ENFORCE=false             # true = agents reject unpaid requests with HTTP 402
+X402_REAL_ONLY=false           # true = never fall back to mock mode
+X402_MAX_TIMEOUT_SECONDS=300   # Payment timeout window
+
+# ── Server ──────────────────────────────────────────────────────────────────
+PORT=4000
+HOST=0.0.0.0
+NODE_ENV=development
+BACKEND_BASE_URL=http://localhost:4000
+LOG_LEVEL=info                 # Optional runtime logging level (debug/info/warn/error)
 
 
 ================================================
@@ -6833,6 +6888,16 @@ sendPayment();
 
 
 ================================================
+FILE: synergi-stellar/frontend/stellar-agent-project/.env.example
+================================================
+# Never commit real secrets.
+# Copy this file to .env and fill values.
+SECRET_KEY=
+DESTINATION_PUBLIC_KEY=GAJUOOVRJUOAP466KZBZPUD6K4VEVMRURQXDP62VH22STNG7P6AZ3Z5O
+
+
+
+================================================
 FILE: synergi-stellar/mcp-server/package.json
 ================================================
 {
@@ -6878,6 +6943,15 @@ FILE: synergi-stellar/mcp-server/tsconfig.json
     "src/**/*"
   ]
 }
+
+
+================================================
+FILE: synergi-stellar/mcp-server/.env.example
+================================================
+# MCP server environment
+BACKEND_URL=http://localhost:4000
+REQUEST_TIMEOUT_MS=12000
+
 
 
 ================================================

@@ -1,19 +1,24 @@
 import Link from 'next/link';
 
-const PRODUCT_LINKS = [
+interface FooterLink {
+	label: string;
+	href: string;
+}
+
+const PRODUCT_LINKS: FooterLink[] = [
 	{ label: 'Docs', href: '/docs' },
 	{ label: 'API', href: '/api/docs/latest' },
 	{ label: 'Privacy', href: '/privacy' },
 	{ label: 'Terms', href: '/terms' }
 ];
 
-const ECOSYSTEM_LINKS = [
+const ECOSYSTEM_LINKS: FooterLink[] = [
 	{ label: 'Stellar', href: 'https://stellar.org' },
 	{ label: 'Soroban', href: 'https://soroban.stellar.org' },
 	{ label: 'x402', href: 'https://www.ietf.org/archive/id/draft-ietf-httpbis-payments-00.html' }
 ];
 
-const SOCIAL_LINKS = [
+const SOCIAL_LINKS: FooterLink[] = [
 	{ label: 'GitHub', href: 'https://github.com' },
 	{ label: 'X/Twitter', href: 'https://x.com' },
 	{ label: 'Discord', href: 'https://discord.com' }
@@ -21,7 +26,7 @@ const SOCIAL_LINKS = [
 
 const STATUS_CHIPS = ['Stellar Testnet', 'Soroban Ready', 'Live Agent Economy'];
 
-function ExternalFooterLink({ href, label }) {
+function ExternalFooterLink({ href, label }: FooterLink) {
 	return (
 		<a
 			className="soft-ring rounded-lg px-2 py-1 text-sm text-slate-600 transition-colors duration-200 hover:bg-sky-50 hover:text-sky-700"
@@ -34,7 +39,7 @@ function ExternalFooterLink({ href, label }) {
 	);
 }
 
-function InternalFooterLink({ href, label }) {
+function InternalFooterLink({ href, label }: FooterLink) {
 	return (
 		<Link
 			className="soft-ring rounded-lg px-2 py-1 text-sm text-slate-600 transition-colors duration-200 hover:bg-sky-50 hover:text-sky-700"

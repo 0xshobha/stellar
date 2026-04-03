@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ReactNode } from 'react';
 import Logo from '../components/Logo';
+import Footer from './footer';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
@@ -80,19 +81,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </div>
           </header>
           <div className="flex-1 pt-5">{children}</div>
-          <footer className="mt-10 border-t border-slate-200 py-8 text-xs text-slate-600">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p>SynergiStellar demo UI for autonomous x402 agent transactions on Stellar.</p>
-              <div className="flex items-center gap-4">
-                <Link className="hover:text-sky-700" href="/docs">
-                  Documentation
-                </Link>
-                <Link className="hover:text-sky-700" href="/privacy">
-                  Privacy Policy
-                </Link>
-              </div>
-            </div>
-          </footer>
+          <Footer />
         </div>
       </body>
     </html>

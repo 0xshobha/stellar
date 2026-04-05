@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ReactNode } from 'react';
 import Logo from '../components/Logo';
-import Footer from './footer';
+import Footer from './AppFooter';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
@@ -70,12 +70,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <span className="glass-chip">Soroban Ready</span>
               </div>
 
-              <nav className="flex items-center gap-2 text-sm">
-                <Link className="soft-ring rounded-lg px-3 py-1.5 text-slate-600 transition hover:bg-sky-50 hover:text-sky-700" href="/docs">
-                  Docs
+              <nav className="flex items-center gap-3 text-sm">
+                <Link className="soft-ring group relative overflow-hidden rounded-xl border border-transparent bg-slate-50 px-4 py-2 font-medium text-slate-600 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-200 hover:bg-white hover:text-sky-700 hover:shadow-md" href="/docs">
+                  <span className="relative z-10">Docs</span>
+                  <div className="absolute inset-0 z-0 h-full w-full bg-gradient-to-r from-sky-50 to-indigo-50 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 </Link>
-                <Link className="soft-ring rounded-lg px-3 py-1.5 text-slate-600 transition hover:bg-sky-50 hover:text-sky-700" href="/privacy">
-                  Privacy
+                <Link className="soft-ring group relative overflow-hidden rounded-xl border border-transparent bg-slate-50 px-4 py-2 font-medium text-slate-600 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-200 hover:bg-white hover:text-sky-700 hover:shadow-md" href="/privacy">
+                  <span className="relative z-10">Privacy</span>
+                  <div className="absolute inset-0 z-0 h-full w-full bg-gradient-to-r from-sky-50 to-indigo-50 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 </Link>
               </nav>
             </div>

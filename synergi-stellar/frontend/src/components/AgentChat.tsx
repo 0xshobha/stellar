@@ -1,6 +1,8 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { Horizon, TransactionBuilder, Networks, Asset, Operation } from '@stellar/stellar-sdk';
+import { signTransaction } from '@stellar/freighter-api';
 import { StreamEvent } from '../lib/types';
 
 interface AgentChatProps {
@@ -8,19 +10,59 @@ interface AgentChatProps {
   events: StreamEvent[];
   summary: string;
   isRunning: boolean;
+  walletAddress: string | null;
 }
 
-export default function AgentChat({ onSessionStart, events, summary, isRunning }: AgentChatProps) {
+export default function AgentChat({ onSessionStart, events, summary, isRunning, walletAddress }: AgentChatProps) {
   const [query, setQuery] = useState('Research AI market trends, run sentiment check, and provide XLM price.');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    setTxHash(null);
 
     try {
+      if (!walletAddress) {
+        throw new Error('Please connect your Freighter wallet first!');
+      }
+
+      const server = new Horizon.Server('https://horizon-testnet.stellar.org');
+      const account = await server.loadAccount(walletAddress);
+
+      const tx = new TransactionBuilder(account, {
+        fee: '100',
+        networkPassphrase: Networks.TESTNET
+      })
+        .addOperation(
+          Operation.payment({
+            destination: walletAddress,
+            asset: Asset.native(),
+            amount: '0.0000001'
+          })
+        )
+        .setTimeout(60)
+        .build();
+
+      const signResult = await signTransaction(tx.toXDR(), { networkPassphrase: Networks.TESTNET });
+      
+      const resultObj = signResult as any;
+      if (resultObj.error) {
+         throw new Error(resultObj.error);
+      }
+      
+      const signedXdrStr = typeof signResult === 'string' ? signResult : resultObj.signedTxXdr;
+      if (!signedXdrStr) {
+        throw new Error('Transaction was cancelled by the user.');
+      }
+
+      const txToSubmit = TransactionBuilder.fromXDR(signedXdrStr, Networks.TESTNET);
+      const submitResponse = await server.submitTransaction(txToSubmit);
+      setTxHash(submitResponse.hash);
+
       const response = await fetch('/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -106,6 +148,20 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning }
         <p className="text-xs font-semibold text-slate-700">Live Execution</p>
         <ul className="mt-2 space-y-1">{eventLines.length ? eventLines : <li className="text-xs text-slate-500">Waiting for session events</li>}</ul>
       </div>
+
+      {txHash ? (
+        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800 shadow-sm">
+          <p className="font-semibold">Initial Payment Captured & Sent</p>
+          <a
+            href={`https://stellar.expert/explorer/testnet/tx/${txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-fit items-center gap-1 rounded bg-white px-2 py-1 mt-2 text-xs font-medium text-indigo-600 shadow-sm transition hover:bg-indigo-600 hover:text-white"
+          >
+            View Full Receipt on Stellar Expert ↗
+          </a>
+        </div>
+      ) : null}
 
       {summary ? (
         <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">

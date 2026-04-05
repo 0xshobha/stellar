@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Horizon, TransactionBuilder, Networks, Asset, Operation } from '@stellar/stellar-sdk';
+import * as freighter from '@stellar/freighter-api';
 import Link from 'next/link';
 import AgentCatalog from '../components/AgentCatalog';
 import AgentChat from '../components/AgentChat';
@@ -48,8 +50,7 @@ type FreighterApi = {
 
 function getFreighterApi(): FreighterApi | null {
   if (typeof window === 'undefined') return null;
-  const candidate = (window as Window & { freighterApi?: FreighterApi }).freighterApi;
-  return candidate ?? null;
+  return freighter as any;
 }
 
 async function readWalletAddress(api: FreighterApi): Promise<string> {
@@ -101,22 +102,7 @@ export default function HomePage() {
   const [walletError, setWalletError] = useState<string>('');
   const [walletBusy, setWalletBusy] = useState<boolean>(false);
 
-  useEffect(() => {
-    const api = getFreighterApi();
-    if (!api?.isConnected) return;
-
-    void api
-      .isConnected()
-      .then(async (connected) => {
-        if (!connected) return;
-        const [address, network] = await Promise.all([readWalletAddress(api), readWalletNetwork(api)]);
-        setWalletAddress(address);
-        setWalletNetwork(normalizeNetwork(network));
-      })
-      .catch(() => {
-        setWalletAddress(null);
-      });
-  }, []);
+  // Auto-connect disabled so the user is forced to reconnect individually on refresh
 
   const connectFreighter = async () => {
     setWalletError('');
@@ -144,6 +130,28 @@ export default function HomePage() {
         throw new Error(
           `Wrong network selected. Please switch Freighter to ${REQUIRED_STELLAR_NETWORK}.`
         );
+      }
+
+      const server = new Horizon.Server('https://horizon-testnet.stellar.org');
+      const account = await server.loadAccount(address);
+
+      const tx = new TransactionBuilder(account, {
+        fee: '100',
+        networkPassphrase: Networks.TESTNET
+      })
+        .addOperation(
+          Operation.payment({
+            destination: address,
+            asset: Asset.native(),
+            amount: '0.0000001'
+          })
+        )
+        .setTimeout(60)
+        .build();
+
+      const signedXdr = await freighter.signTransaction(tx.toXDR(), { network: 'TESTNET' });
+      if (!signedXdr && typeof signedXdr !== 'string') {
+        throw new Error('Connection transaction was cancelled by the user.');
       }
 
       setWalletAddress(address);
@@ -324,6 +332,7 @@ export default function HomePage() {
           events={events}
           summary={statusSnapshot?.summary ?? ''}
           isRunning={isRunning}
+          walletAddress={walletAddress}
         />
         <AgentCatalog catalog={catalog} />
         <TopologyGraph events={events} />

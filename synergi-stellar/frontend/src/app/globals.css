@@ -5,9 +5,10 @@
 body {
   @apply bg-slate-50 text-slate-800;
   background-image:
-    radial-gradient(circle at 10% 10%, rgba(14, 165, 233, 0.16), transparent 28%),
-    radial-gradient(circle at 90% 20%, rgba(59, 130, 246, 0.1), transparent 30%),
-    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    radial-gradient(circle at 10% 10%, rgba(2, 132, 199, 0.24), transparent 30%),
+    radial-gradient(circle at 92% 18%, rgba(37, 99, 235, 0.16), transparent 32%),
+    radial-gradient(circle at 70% 92%, rgba(99, 102, 241, 0.12), transparent 38%),
+    linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
 }
 
 .panel {
@@ -98,5 +99,52 @@ body {
   }
   50% {
     transform: translateY(-3px);
+  }
+}
+
+/* ── Welcome Hero ───────────────────────────────────────────────────────── */
+
+.hero-dots {
+  background-image: radial-gradient(circle at 1px 1px, currentColor 1px, transparent 1.8px);
+  background-size: 18px 18px;
+  opacity: 0.55;
+  filter: blur(0.15px);
+  animation: hero-dots-drift 9s linear infinite;
+}
+
+@keyframes hero-dots-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-54px, 38px, 0);
+  }
+}
+
+.type-caret {
+  display: inline-block;
+  width: 0.58em;
+  height: 1.05em;
+  margin-left: 0.08em;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-0.12em);
+  animation: caret-blink 1s steps(2, jump-none) infinite;
+}
+
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-dots,
+  .type-caret {
+    animation: none !important;
   }
 }

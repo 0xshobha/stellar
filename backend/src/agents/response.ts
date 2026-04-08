@@ -49,5 +49,5 @@ function resolveTxHash(res: Response, agentName: string): string {
     }
   }
 
-  return `mock-${agentName.toLowerCase()}-${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
+  return `unsettled-${agentName.toLowerCase()}-${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
 }

@@ -1,5 +1,15 @@
+export type PlannerAgentRole =
+  | 'PriceFeed'
+  | 'NewsDigest'
+  | 'Summarizer'
+  | 'SentimentAI'
+  | 'MathSolver'
+  | 'DeepResearch';
+
 export interface AgentCatalogItem {
-  name: 'PriceFeed' | 'NewsDigest' | 'Summarizer' | 'SentimentAI' | 'MathSolver' | 'DeepResearch';
+  id: string;
+  plannerRole: PlannerAgentRole;
+  capability: string;
   endpoint: string;
   price: number;
   reputation: number;
@@ -7,6 +17,7 @@ export interface AgentCatalogItem {
   recursive: boolean;
   jobsCompleted: number;
   jobsFailed: number;
+  explorerUrl?: string;
 }
 
 export interface PaymentRecord {
@@ -59,6 +70,7 @@ export interface SessionStatus {
   completedSteps: number;
   totalSteps: number;
   partial: boolean;
+  budgetUsd?: number;
   protocolTrace: ProtocolTraceItem[];
   metrics: SessionMetrics;
   transactions: PaymentRecord[];

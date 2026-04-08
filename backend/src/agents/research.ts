@@ -1,148 +1,159 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import { env } from '../config.js';
-import { createPaywall } from '../x402/middleware.js';
+import { env, isX402RealMode, isX402RealOnly } from '../config.js';
+import { createPaywallForEndpoint } from '../x402/middleware.js';
 import { x402FetchJson } from '../x402/client.js';
 import { buildAgentResponse } from './response.js';
+import { getAgentById, pickBestAgentForCapability } from '../stellar/contract.js';
+import { completeJsonArray } from '../lib/llm.js';
 
 const router = Router();
-const MAX_DEPTH = 2;
-const AGENT_NAME = 'DeepResearch';
-const PRICE_USDC = 0.01;
+const MAX_DEPTH = 3;
 
 function getBackendBaseUrl(): string {
   return process.env.RUNTIME_BACKEND_BASE_URL || env.BACKEND_BASE_URL;
 }
 
-router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
+const ALLOWED_CAPS = new Set(['news', 'sentiment', 'price', 'summarize', 'math']);
+
+function heuristicCaps(topic: string): string[] {
+  const t = topic.toLowerCase();
+  const out: string[] = [];
+  if (/news|headline|breaking|market|stock|crypto|fed|rate/i.test(t)) out.push('news');
+  if (/sentiment|tone|risk|bull|bear|fear|greed/i.test(t)) out.push('sentiment');
+  if (/price|\$|btc|eth|xlm|sol/i.test(t)) out.push('price');
+  if (/math|calculate|%|\d+\s*[\+\-\*\/]/i.test(t)) out.push('math');
+  out.push('summarize');
+  return [...new Set(out)];
+}
+
+async function planCaps(topic: string): Promise<string[]> {
+  try {
+    const llmCaps = await completeJsonArray(
+      `Given the research topic, pick 1-4 capability names from: news, sentiment, price, summarize, math.\nTopic: ${topic.slice(0, 500)}`
+    );
+    const filtered = llmCaps.filter((c) => ALLOWED_CAPS.has(c));
+    if (filtered.length > 0) return [...new Set(filtered)];
+  } catch {
+    // heuristic
+  }
+  return heuristicCaps(topic);
+}
+
+router.post('/', createPaywallForEndpoint('research'), async (req, res) => {
   const input = String(req.body?.input ?? 'research topic');
   const depth = Number(req.body?.depth ?? 0);
   const sessionId = String(req.header('x-session-id') ?? randomUUID());
+  const regId = String(req.header('x-registry-agent') ?? '').trim();
+  const meta =
+    (regId ? getAgentById(regId) : null) ?? pickBestAgentForCapability('research', Number.MAX_VALUE);
+  if (!meta) {
+    res.status(503).json({ ok: false, error: { code: 'NO_AGENT', message: 'No research worker' } });
+    return;
+  }
 
   if (depth >= MAX_DEPTH) {
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.json(buildAgentResponse({
+    res.status(400).json({
+      ok: false,
+      error: { code: 'DEPTH_LIMIT', message: `Max research depth ${MAX_DEPTH}` }
+    });
+    return;
+  }
+
+  const caps = await planCaps(input);
+  const subResults: Record<string, unknown> = {};
+  const subTransactions: Array<{
+    agent: string;
+    txHash: string;
+    pricePaid: number;
+    from?: string;
+    depth?: number;
+  }> = [];
+
+  const useFallback = !(isX402RealMode && isX402RealOnly);
+
+  await Promise.all(
+    caps.map(async (cap) => {
+      const worker = pickBestAgentForCapability(cap, Number.MAX_VALUE);
+      if (!worker) return;
+      const endpoint = worker.endpoint;
+      const url = `${getBackendBaseUrl()}/agents/${endpoint}`;
+      try {
+        const response = await x402FetchJson<{
+          data?: Record<string, unknown>;
+          txHash?: string;
+          pricePaid?: number;
+          agent?: string;
+        }>(
+          sessionId,
+          url,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-session-id': sessionId,
+              'x-parent-agent': meta.id,
+              'x-registry-agent': worker.id
+            },
+            body: JSON.stringify({ input, depth: depth + 1 })
+          },
+          {
+            retries: 2,
+            timeoutMs: 14_000,
+            agentName: worker.id,
+            fallbackFactory: useFallback
+              ? (reason) => ({
+                  agent: worker.id,
+                  data: { fallback: true, reason },
+                  txHash: `fallback-${worker.id}-${Date.now().toString(16)}`,
+                  pricePaid: worker.price
+                })
+              : undefined
+          }
+        );
+
+        const payload = response.data;
+        subResults[worker.id] = payload.data ?? payload;
+        subTransactions.push({
+          agent: worker.id,
+          txHash: typeof payload.txHash === 'string' ? payload.txHash : `unsettled-${randomUUID().slice(0, 8)}`,
+          pricePaid: Number(payload.pricePaid ?? worker.price),
+          from: meta.id,
+          depth: depth + 1
+        });
+      } catch (error) {
+        subResults[worker.id] = {
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    })
+  );
+
+  let totalSub = 0;
+  for (const st of subTransactions) {
+    totalSub += st.pricePaid;
+  }
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(
+    buildAgentResponse({
       res,
-      agentName: AGENT_NAME,
-      pricePaid: PRICE_USDC,
+      agentName: meta.id,
+      pricePaid: meta.price,
       data: {
         topic: input,
         depth,
         maxDepth: MAX_DEPTH,
-        agentsUsed: [],
-        subTransactions: [],
-        totalCost: PRICE_USDC,
-        result: {
-          summary: 'Depth limit reached for recursive research execution.'
-        }
+        capabilitiesInvoked: caps,
+        agentsUsed: subTransactions.map((s) => s.agent),
+        subTransactions,
+        totalCost: Number((meta.price + totalSub).toFixed(6)),
+        result: subResults
       },
       agentPublicKey: env.AGENT_RESEARCH_PUBLIC_KEY,
       depth
-    }));
-    return;
-  }
-
-  const subAgentCalls = [
-    { agent: 'Summarizer', endpoint: 'summarize', pricePaid: 0.001 },
-    { agent: 'SentimentAI', endpoint: 'sentiment', pricePaid: 0.001 }
-  ] as const;
-
-  const settled = await Promise.allSettled(
-    subAgentCalls.map(async (entry) => {
-      const response = await x402FetchJson<{
-        data?: Record<string, unknown>;
-        txHash?: string;
-        pricePaid?: number;
-      }>(
-        sessionId,
-        `${getBackendBaseUrl()}/agents/${entry.endpoint}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-session-id': sessionId,
-            'x-parent-agent': AGENT_NAME
-          },
-          body: JSON.stringify({ input, depth: depth + 1 })
-        },
-        {
-          retries: 2,
-          timeoutMs: 8000,
-          agentName: entry.agent,
-          fallbackFactory: (reason) => ({
-            data: { fallback: true, reason },
-            txHash: mockTxHash(entry.agent),
-            pricePaid: entry.pricePaid
-          })
-        }
-      );
-
-      const payload = response.data;
-      return {
-        agent: entry.agent,
-        data: payload.data ?? { fallback: true, reason: 'No payload data' },
-        txHash: typeof payload.txHash === 'string' ? payload.txHash : mockTxHash(entry.agent),
-        pricePaid: Number(payload.pricePaid ?? entry.pricePaid)
-      };
     })
   );
-
-  const byAgent = new Map<string, { data: Record<string, unknown>; txHash: string; pricePaid: number }>();
-  settled.forEach((item, index) => {
-    const entry = subAgentCalls[index];
-    if (item.status === 'fulfilled') {
-      byAgent.set(entry.agent, item.value);
-      return;
-    }
-
-    byAgent.set(entry.agent, {
-      data: { fallback: true, reason: String(item.reason) },
-      txHash: mockTxHash(entry.agent),
-      pricePaid: entry.pricePaid
-    });
-  });
-
-  const summaryResult = byAgent.get('Summarizer') ?? {
-    data: { fallback: true, reason: 'Summarizer unavailable' },
-    txHash: mockTxHash('Summarizer'),
-    pricePaid: 0.001
-  };
-
-  const sentimentResult = byAgent.get('SentimentAI') ?? {
-    data: { fallback: true, reason: 'SentimentAI unavailable' },
-    txHash: mockTxHash('SentimentAI'),
-    pricePaid: 0.001
-  };
-
-  const subTransactions = [
-    { agent: 'Summarizer', txHash: summaryResult.txHash, pricePaid: 0.001, from: 'DeepResearch', depth: depth + 1 },
-    { agent: 'SentimentAI', txHash: sentimentResult.txHash, pricePaid: 0.001, from: 'DeepResearch', depth: depth + 1 }
-  ];
-
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.json(buildAgentResponse({
-    res,
-    agentName: AGENT_NAME,
-    pricePaid: PRICE_USDC,
-    data: {
-      topic: input,
-      depth,
-      maxDepth: MAX_DEPTH,
-      agentsUsed: ['Summarizer', 'SentimentAI'],
-      subTransactions,
-      totalCost: Number((PRICE_USDC + summaryResult.pricePaid + sentimentResult.pricePaid).toFixed(6)),
-      result: {
-        Summarizer: summaryResult.data,
-        SentimentAI: sentimentResult.data
-      }
-    },
-    agentPublicKey: env.AGENT_RESEARCH_PUBLIC_KEY,
-    depth
-  }));
 });
 
 export default router;
-
-function mockTxHash(agentName: string): string {
-  return `mock-${agentName.toLowerCase()}-${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
-}

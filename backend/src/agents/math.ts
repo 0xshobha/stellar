@@ -1,15 +1,22 @@
 import { Router } from 'express';
 import { env } from '../config.js';
-import { createPaywall } from '../x402/middleware.js';
+import { createPaywallForEndpoint } from '../x402/middleware.js';
 import { buildAgentResponse } from './response.js';
+import { getAgentById, pickBestAgentForCapability } from '../stellar/contract.js';
 
 const router = Router();
-const AGENT_NAME = 'MathSolver';
-const PRICE_USDC = 0.002;
 
-router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
+router.post('/', createPaywallForEndpoint('math'), async (req, res) => {
   const raw = String(req.body?.input ?? '0');
   const depth = Number(req.body?.depth ?? 0);
+  const regId = String(req.header('x-registry-agent') ?? '').trim();
+  const meta =
+    (regId ? getAgentById(regId) : null) ?? pickBestAgentForCapability('math', Number.MAX_VALUE);
+  if (!meta) {
+    res.status(503).json({ ok: false, error: { code: 'NO_AGENT', message: 'No math worker' } });
+    return;
+  }
+
   const sanitized = raw.replace(/[^\d+\-*/().\s]/g, '');
   let result: number | null = null;
   let error: string | null = null;
@@ -27,8 +34,8 @@ router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
   res.json(
     buildAgentResponse({
       res,
-      agentName: AGENT_NAME,
-      pricePaid: PRICE_USDC,
+      agentName: meta.id,
+      pricePaid: meta.price,
       data: {
         expression: raw,
         result,

@@ -1,4 +1,5 @@
-export type AgentName =
+/** Planner / user-facing role (one per step in a plan). */
+export type PlannerAgentRole =
   | 'PriceFeed'
   | 'NewsDigest'
   | 'Summarizer'
@@ -6,8 +7,16 @@ export type AgentName =
   | 'MathSolver'
   | 'DeepResearch';
 
+/** @deprecated Use PlannerAgentRole — kept for gradual migration */
+export type AgentName = PlannerAgentRole;
+
 export interface AgentCatalogItem {
-  name: AgentName;
+  /** Soroban registry id / unique worker id (e.g. prc_bas). */
+  id: string;
+  plannerRole: PlannerAgentRole;
+  /** Contract capability bucket: price | news | summarize | sentiment | math | research */
+  capability: string;
+  /** HTTP path segment under /agents/ */
   endpoint: string;
   price: number;
   reputation: number;
@@ -58,6 +67,8 @@ export interface SessionStatus {
   completedSteps: number;
   totalSteps: number;
   partial: boolean;
+  /** Parsed from query text, e.g. "under $0.02" */
+  budgetUsd?: number;
 }
 
 export interface ProtocolTraceItem {
@@ -93,4 +104,3 @@ export interface ApiError {
 }
 
 export type ApiResponse<T> = ApiSuccess<T> | ApiError;
-

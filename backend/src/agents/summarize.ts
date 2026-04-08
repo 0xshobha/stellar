@@ -1,29 +1,47 @@
 import { Router } from 'express';
 import { env } from '../config.js';
-import { createPaywall } from '../x402/middleware.js';
+import { createPaywallForEndpoint } from '../x402/middleware.js';
 import { buildAgentResponse } from './response.js';
+import { getAgentById, pickBestAgentForCapability } from '../stellar/contract.js';
+import { completeText } from '../lib/llm.js';
 
 const router = Router();
-const AGENT_NAME = 'Summarizer';
-const PRICE_USDC = 0.001;
 
-router.post('/', createPaywall(PRICE_USDC, AGENT_NAME), async (req, res) => {
-  const input = String(req.body?.input ?? 'No content provided');
+router.post('/', createPaywallForEndpoint('summarize'), async (req, res) => {
+  const input = String(req.body?.input ?? '').slice(0, 120_000);
   const depth = Number(req.body?.depth ?? 0);
-  const sentences = input
-    .split(/[.!?]/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 3);
+  const regId = String(req.header('x-registry-agent') ?? '').trim();
+  const meta =
+    (regId ? getAgentById(regId) : null) ?? pickBestAgentForCapability('summarize', Number.MAX_VALUE);
+  if (!meta) {
+    res.status(503).json({ ok: false, error: { code: 'NO_AGENT', message: 'No summarizer' } });
+    return;
+  }
+
+  let summary: string;
+  try {
+    summary = await completeText(
+      `Summarize the following for an executive reader. Use bullet points if helpful. Stay factual.\n\n---\n${input}\n---`,
+      meta.id === 'sum_pro' ? 1200 : 700
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(503).json({
+      ok: false,
+      error: { code: 'LLM_UNAVAILABLE', message }
+    });
+    return;
+  }
 
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.json(
     buildAgentResponse({
       res,
-      agentName: AGENT_NAME,
-      pricePaid: PRICE_USDC,
+      agentName: meta.id,
+      pricePaid: meta.price,
       data: {
-        summary: sentences.join('. ') || input.slice(0, 160)
+        summary,
+        modelTier: meta.id === 'sum_pro' ? 'pro' : 'fast'
       },
       agentPublicKey: env.AGENT_SUMMARIZER_PUBLIC_KEY,
       depth

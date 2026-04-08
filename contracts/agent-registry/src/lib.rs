@@ -13,6 +13,8 @@ pub struct Agent {
     pub jobs_completed: u64,
     pub jobs_failed: u64,
     pub recursive: bool,
+    /// Logical capability bucket: price, news, summarize, sentiment, math, research
+    pub capability: String,
 }
 
 #[contracttype]
@@ -33,6 +35,7 @@ impl AgentRegistry {
         endpoint: String,
         price_usdc: i128,
         recursive: bool,
+        capability: String,
     ) {
         owner.require_auth();
 
@@ -51,6 +54,7 @@ impl AgentRegistry {
             jobs_completed: 0,
             jobs_failed: 0,
             recursive,
+            capability,
         };
 
         env.storage().persistent().set(&key, &agent);
@@ -76,6 +80,41 @@ impl AgentRegistry {
             }
         }
         out
+    }
+
+    /// All agents advertising a capability (e.g. "price", "news").
+    pub fn get_agents_by_capability(env: Env, capability: String) -> Vec<Agent> {
+        let list: Vec<Symbol> = get_agent_symbol_list(&env);
+        let mut out = Vec::new(&env);
+        for name in list.iter() {
+            let key = DataKey::Agent(name.clone());
+            let maybe: Option<Agent> = env.storage().persistent().get(&key);
+            if let Some(agent) = maybe {
+                if agent.capability == capability {
+                    out.push_back(agent);
+                }
+            }
+        }
+        out
+    }
+
+    /// Highest (reputation * 1000 - price_usdc) in the capability bucket.
+    pub fn get_best_agent(env: Env, capability: String) -> Option<Agent> {
+        let agents = Self::get_agents_by_capability(env, capability);
+        if agents.is_empty() {
+            return None;
+        }
+        let mut best_idx: u32 = 0;
+        let mut best_score: i128 = i128::MIN;
+        for i in 0..agents.len() {
+            let a = agents.get(i).unwrap();
+            let score = a.reputation.saturating_mul(1000).saturating_sub(a.price_usdc);
+            if i == 0 || score > best_score {
+                best_score = score;
+                best_idx = i;
+            }
+        }
+        Some(agents.get(best_idx).unwrap())
     }
 
     pub fn record_job_result(env: Env, name: Symbol, success: bool) {

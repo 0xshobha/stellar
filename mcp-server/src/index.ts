@@ -36,28 +36,29 @@ const tools: Tool[] = [
   },
   {
     name: 'get_agent_reputation',
-    description: 'Get reputation and pricing details for one agent.',
+    description: 'Get reputation and pricing details for one registry agent.',
     inputSchema: {
       type: 'object',
       properties: {
-        agent_name: { type: 'string', description: 'Agent name such as PriceFeed' }
+        agent_id: { type: 'string', description: 'Registry id e.g. prc_bas, new_api, sum_pro' }
       },
-      required: ['agent_name']
+      required: ['agent_id']
     }
   },
   {
     name: 'call_agent_direct',
-    description: 'Directly call a worker endpoint and return paid result.',
+    description:
+      'Call a worker HTTP route. Use registry id (prc_bas) for a specific tier, or legacy role (PriceFeed) to let the manager pick the best worker.',
     inputSchema: {
       type: 'object',
       properties: {
-        agent_name: {
+        agent_ref: {
           type: 'string',
-          enum: ['PriceFeed', 'NewsDigest', 'Summarizer', 'SentimentAI', 'MathSolver', 'DeepResearch']
+          description: 'Registry id (prc_bas, new_std, …) or legacy role (PriceFeed, NewsDigest, …)'
         },
         input: { type: 'string' }
       },
-      required: ['agent_name', 'input']
+      required: ['agent_ref', 'input']
     }
   },
   {
@@ -145,8 +146,8 @@ async function handleTool(name: string, args: Record<string, unknown>): Promise<
       return 'Timeout waiting for completion.';
     }
     case 'get_agent_reputation': {
-      const agentName = String(args.agent_name ?? '');
-      const data = await callBackend(`/agents/reputation/${agentName}`);
+      const agentId = String(args.agent_id ?? args.agent_name ?? '');
+      const data = await callBackend(`/agents/reputation/${encodeURIComponent(agentId)}`);
       return JSON.stringify(data, null, 2);
     }
     case 'call_agent_direct': {
@@ -158,14 +159,21 @@ async function handleTool(name: string, args: Record<string, unknown>): Promise<
         MathSolver: 'math',
         DeepResearch: 'research'
       };
-      const agentName = String(args.agent_name ?? '');
-      const endpoint = endpointMap[agentName];
+      const agentRef = String(args.agent_ref ?? args.agent_name ?? '');
+      let endpoint = endpointMap[agentRef];
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (!endpoint) {
-        throw new Error(`Unknown agent ${agentName}`);
+        const catalog = await callBackend<{ items: Array<{ id: string; endpoint: string }> }>('/agents/catalog');
+        const item = catalog.items.find((i) => i.id === agentRef);
+        if (!item) {
+          throw new Error(`Unknown agent_ref ${agentRef}`);
+        }
+        endpoint = item.endpoint;
+        headers['x-registry-agent'] = item.id;
       }
       const data = await callBackend(`/agents/${endpoint}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ input: String(args.input ?? '') })
       });
       return JSON.stringify(data, null, 2);

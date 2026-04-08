@@ -1,55 +1,68 @@
-import { AgentCatalogItem, AgentName } from '../lib/types.js';
+import type { AgentCatalogItem, PlannerAgentRole } from '../lib/types.js';
 import { staticCatalog } from '../lib/store.js';
 import { env } from '../config.js';
+import { logInfo, logWarn } from '../lib/logger.js';
+import { fetchAgentsFromChain, isLocalContract, submitRecordJobOnChain } from './sorobanRegistry.js';
 
-/* SOROBAN INTEGRATION STUB
-When CONTRACT_ID env var is set (not 'LOCAL_MOCK_CONTRACT'), this module
-would use @stellar/stellar-sdk Contract class to call on-chain functions:
+const agentState = new Map<string, AgentCatalogItem>(staticCatalog.map((item) => [item.id, { ...item }]));
+const basePriceById = new Map<string, number>(staticCatalog.map((item) => [item.id, item.price]));
 
-import { Contract, rpc, xdr } from '@stellar/stellar-sdk';
-const server = new rpc.Server('https://soroban-testnet.stellar.org');
-const contract = new Contract(process.env.CONTRACT_ID!);
-
-To register an agent on-chain:
-const tx = await server.prepareTransaction(
-  new TransactionBuilder(account, { fee: '100', networkPassphrase: Networks.TESTNET })
-    .addOperation(contract.call('register_agent', ...))
-    .setTimeout(30).build()
-);
-
-For hackathon submission, in-memory state is used for speed.
-All state updates happen identically to what the contract would do.
-*/
-
-const agentState = new Map<AgentName, AgentCatalogItem>(
-  staticCatalog.map((item) => [item.name, { ...item }])
-);
-const basePriceByAgent = new Map<AgentName, number>(staticCatalog.map((item) => [item.name, item.price]));
 const allTransactions: Array<{
-  agentName: AgentName;
+  agentId: string;
   success: boolean;
   price: number;
   reputation: number;
   timestamp: string;
 }> = [];
 
+let pollHandle: ReturnType<typeof setInterval> | null = null;
+
 if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
-  throw new Error('Invalid CONTRACT_ID: set CONTRACT_ID or use LOCAL_MOCK_CONTRACT for local mode.');
+  throw new Error('CONTRACT_ID must be set (use LOCAL_MOCK_CONTRACT for local-only registry).');
+}
+
+export function startRegistryPoller(): void {
+  if (isLocalContract() || pollHandle) return;
+  void refreshRegistryFromChain();
+  pollHandle = setInterval(() => {
+    void refreshRegistryFromChain();
+  }, 45_000);
+}
+
+export async function refreshRegistryFromChain(): Promise<void> {
+  if (isLocalContract()) return;
+  const remote = await fetchAgentsFromChain();
+  if (!remote || remote.length === 0) {
+    logWarn('Registry chain sync produced no agents; keeping in-memory catalog');
+    return;
+  }
+  for (const item of remote) {
+    agentState.set(item.id, { ...item });
+    if (!basePriceById.has(item.id)) {
+      basePriceById.set(item.id, item.price);
+    }
+  }
+  logInfo('Registry merged from Soroban', { agents: remote.length });
 }
 
 export function getAgentCatalog(): Array<AgentCatalogItem & { explorerUrl: string }> {
   return Array.from(agentState.values()).map((item) => {
-    const publicKey = getAgentPublicKey(item.name);
+    const publicKey = getRecipientPublicKey(item);
     return {
       ...item,
-      explorerUrl: `https://stellar.expert/explorer/testnet/account/${publicKey}`
+      explorerUrl: `https://stellar.expert/explorer/${env.STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet'}/account/${publicKey}`
     };
   });
 }
 
-export function getAgentByName(name: string): AgentCatalogItem | undefined {
-  const found = agentState.get(name as AgentName);
+export function getAgentById(id: string): AgentCatalogItem | undefined {
+  const found = agentState.get(id);
   return found ? { ...found } : undefined;
+}
+
+/** @deprecated use getAgentById */
+export function getAgentByName(name: string): AgentCatalogItem | undefined {
+  return getAgentById(name);
 }
 
 export function getAgentByEndpoint(endpoint: string): AgentCatalogItem | undefined {
@@ -57,8 +70,44 @@ export function getAgentByEndpoint(endpoint: string): AgentCatalogItem | undefin
   return found ? { ...found } : undefined;
 }
 
-export function recordJobResult(name: AgentName, success: boolean): AgentCatalogItem | undefined {
-  const current = agentState.get(name);
+export function listAgentsForCapability(capability: string): AgentCatalogItem[] {
+  const c = capability.toLowerCase();
+  return Array.from(agentState.values()).filter((a) => a.capability === c);
+}
+
+const REP_WEIGHT = 0.0001;
+const COST_WEIGHT = 2;
+
+export function scoreAgentDecision(item: AgentCatalogItem): number {
+  return REP_WEIGHT * item.reputation - COST_WEIGHT * item.price;
+}
+
+export function pickBestAgentForCapability(
+  capability: string,
+  maxPriceUsd: number,
+  excludeIds: ReadonlySet<string> = new Set()
+): AgentCatalogItem | null {
+  const candidates = listAgentsForCapability(capability).filter(
+    (a) => a.price <= maxPriceUsd && !excludeIds.has(a.id)
+  );
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => scoreAgentDecision(b) - scoreAgentDecision(a))[0] ?? null;
+}
+
+export function plannerRoleToCapability(role: PlannerAgentRole): string {
+  const map: Record<PlannerAgentRole, string> = {
+    PriceFeed: 'price',
+    NewsDigest: 'news',
+    Summarizer: 'summarize',
+    SentimentAI: 'sentiment',
+    MathSolver: 'math',
+    DeepResearch: 'research'
+  };
+  return map[role];
+}
+
+export function recordJobResult(id: string, success: boolean): AgentCatalogItem | undefined {
+  const current = agentState.get(id);
   if (!current) return undefined;
 
   const next = { ...current };
@@ -70,7 +119,7 @@ export function recordJobResult(name: AgentName, success: boolean): AgentCatalog
     next.reputation = Math.max(0, next.reputation - 120);
   }
 
-  const basePrice = basePriceByAgent.get(name) ?? current.price;
+  const basePrice = basePriceById.get(id) ?? current.price;
   let multiplier = 1;
   if (next.reputation >= 8500) {
     multiplier = 1.1;
@@ -83,30 +132,40 @@ export function recordJobResult(name: AgentName, success: boolean): AgentCatalog
   const proposedPrice = basePrice * multiplier;
   next.price = Number(Math.min(maxPrice, Math.max(minPrice, proposedPrice)).toFixed(6));
 
-  agentState.set(name, next);
+  agentState.set(id, next);
   allTransactions.push({
-    agentName: name,
+    agentId: id,
     success,
     price: next.price,
     reputation: next.reputation,
     timestamp: new Date().toISOString()
   });
 
+  if (!isLocalContract()) {
+    void submitRecordJobOnChain(id, success);
+  }
+
   return { ...next };
 }
 
 export function getAllTransactions(): Array<{
-  agentName: AgentName;
+  agentName: string;
   success: boolean;
   price: number;
   reputation: number;
   timestamp: string;
 }> {
-  return allTransactions.map((item) => ({ ...item }));
+  return allTransactions.map((item) => ({
+    agentName: item.agentId,
+    success: item.success,
+    price: item.price,
+    reputation: item.reputation,
+    timestamp: item.timestamp
+  }));
 }
 
-function getAgentPublicKey(agentName: AgentName): string {
-  const envByAgent: Record<AgentName, string | undefined> = {
+function getRecipientPublicKey(item: AgentCatalogItem): string {
+  const envByRole: Record<PlannerAgentRole, string | undefined> = {
     PriceFeed: process.env.AGENT_PRICE_PUBLIC_KEY,
     NewsDigest: process.env.AGENT_NEWS_PUBLIC_KEY,
     Summarizer: process.env.AGENT_SUMMARIZER_PUBLIC_KEY,
@@ -115,5 +174,5 @@ function getAgentPublicKey(agentName: AgentName): string {
     DeepResearch: process.env.AGENT_RESEARCH_PUBLIC_KEY
   };
 
-  return envByAgent[agentName] || 'UNCONFIGURED';
+  return envByRole[item.plannerRole] || 'UNCONFIGURED';
 }

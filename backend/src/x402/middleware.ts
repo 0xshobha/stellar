@@ -4,6 +4,8 @@ import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymen
 import { HTTPFacilitatorClient, x402ResourceServer } from '@x402/core/server';
 import { ExactStellarScheme as ExactStellarServerScheme } from '@x402/stellar/exact/server';
 import { env, isX402Enforced, isX402RealMode, isX402RealOnly } from '../config.js';
+import { getAgentById, pickBestAgentForCapability } from '../stellar/contract.js';
+import type { PlannerAgentRole } from '../lib/types.js';
 
 const STELLAR_TESTNET_NETWORK = 'stellar:testnet' as const;
 
@@ -17,6 +19,58 @@ async function ensureResourceServerInitialized(): Promise<void> {
     initializationPromise = resourceServer.initialize();
   }
   await initializationPromise;
+}
+
+const ENDPOINT_CAPABILITY: Record<string, string> = {
+  price: 'price',
+  news: 'news',
+  summarize: 'summarize',
+  sentiment: 'sentiment',
+  math: 'math',
+  research: 'research'
+};
+
+/**
+ * Paywall priced from registry: uses x-registry-agent or picks best for the route capability.
+ */
+export function createPaywallForEndpoint(endpoint: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const capability = ENDPOINT_CAPABILITY[endpoint];
+    if (!capability) {
+      res.status(500).json({
+        ok: false,
+        error: { code: 'BAD_ENDPOINT', message: `Unknown agent endpoint: ${endpoint}` }
+      });
+      return;
+    }
+
+    let registryId = req.header('x-registry-agent')?.trim();
+    if (!registryId) {
+      const picked = pickBestAgentForCapability(capability, Number.MAX_VALUE);
+      if (!picked) {
+        res.status(503).json({
+          ok: false,
+          error: { code: 'NO_AGENT', message: `No registered worker for capability ${capability}` }
+        });
+        return;
+      }
+      registryId = picked.id;
+    }
+
+    const agent = getAgentById(registryId);
+    if (!agent || agent.endpoint !== endpoint) {
+      res.status(400).json({
+        ok: false,
+        error: {
+          code: 'BAD_REGISTRY_AGENT',
+          message: 'x-registry-agent does not match this HTTP route'
+        }
+      });
+      return;
+    }
+
+    return createPaywall(agent.price, agent.id)(req, res, next);
+  };
 }
 
 export function createPaywall(priceUSDC: number, agentName: string) {
@@ -192,8 +246,25 @@ function handleMockPaywall(req: Request, res: Response, next: NextFunction, pric
   next();
 }
 
-function resolveAgentRecipient(agentName: string): string | null {
-  const recipients: Record<string, string | undefined> = {
+const ROLE_RECIPIENTS: Record<PlannerAgentRole, string | undefined> = {
+  PriceFeed: env.AGENT_PRICE_PUBLIC_KEY,
+  NewsDigest: env.AGENT_NEWS_PUBLIC_KEY,
+  Summarizer: env.AGENT_SUMMARIZER_PUBLIC_KEY,
+  SentimentAI: env.AGENT_SENTIMENT_PUBLIC_KEY,
+  MathSolver: env.AGENT_MATH_PUBLIC_KEY,
+  DeepResearch: env.AGENT_RESEARCH_PUBLIC_KEY
+};
+
+function resolveAgentRecipient(agentRegistryId: string): string | null {
+  const catalog = getAgentById(agentRegistryId);
+  if (catalog) {
+    const configured = ROLE_RECIPIENTS[catalog.plannerRole];
+    if (configured && configured.startsWith('G') && configured.length >= 56) {
+      return configured;
+    }
+  }
+
+  const legacy: Record<string, string | undefined> = {
     PriceFeed: env.AGENT_PRICE_PUBLIC_KEY,
     NewsDigest: env.AGENT_NEWS_PUBLIC_KEY,
     Summarizer: env.AGENT_SUMMARIZER_PUBLIC_KEY,
@@ -202,8 +273,7 @@ function resolveAgentRecipient(agentName: string): string | null {
     DeepResearch: env.AGENT_RESEARCH_PUBLIC_KEY
   };
 
-  const configured = recipients[agentName];
-
+  const configured = legacy[agentRegistryId];
   if (configured && configured.startsWith('G') && configured.length >= 56) {
     return configured;
   }

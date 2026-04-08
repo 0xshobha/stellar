@@ -35,7 +35,8 @@ const envSchema = z.object({
   AGENT_MATH_PUBLIC_KEY: z.string().optional(),
   AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
   CONTRACT_ID: z.string().default('LOCAL_MOCK_CONTRACT'),
-  X402_ENFORCE: z.enum(['true', 'false']).default('false')
+  X402_ENFORCE: z.enum(['true', 'false']).default('false'),
+  SOROBAN_RPC_URL: z.string().url().optional()
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;

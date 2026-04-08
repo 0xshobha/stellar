@@ -74,7 +74,7 @@ export function listTransactions(limit = 10, sessionId?: string): PaymentRecord[
   return source.slice(0, Math.max(1, limit));
 }
 
-export function createSessionStatus(sessionId: string, query: string): SessionStatus {
+export function createSessionStatus(sessionId: string, query: string, budgetUsd?: number): SessionStatus {
   const now = nowIso();
   const session: SessionStatus = {
     sessionId,
@@ -89,7 +89,8 @@ export function createSessionStatus(sessionId: string, query: string): SessionSt
     errors: [],
     completedSteps: 0,
     totalSteps: 0,
-    partial: false
+    partial: false,
+    budgetUsd
   };
   sessionStatuses.set(sessionId, session);
   protocolTraces.set(sessionId, []);
@@ -172,65 +173,138 @@ export function completeSession(sessionId: string, summary: string): void {
   });
 }
 
+/** Initial registry: two tiers per crowded capability for on-chain-style competition. */
 export const staticCatalog: AgentCatalogItem[] = [
   {
-    name: 'PriceFeed',
+    id: 'prc_bas',
+    plannerRole: 'PriceFeed',
+    capability: 'price',
     endpoint: 'price',
-    price: 0.001,
-    reputation: 8200,
+    price: 0.0005,
+    reputation: 7200,
     capabilities: ['price-check', 'asset-quote'],
     recursive: false,
-    jobsCompleted: 42,
-    jobsFailed: 2
+    jobsCompleted: 120,
+    jobsFailed: 8
   },
   {
-    name: 'NewsDigest',
-    endpoint: 'news',
+    id: 'prc_pro',
+    plannerRole: 'PriceFeed',
+    capability: 'price',
+    endpoint: 'price',
     price: 0.002,
-    reputation: 7900,
-    capabilities: ['headline-summary', 'topic-digest'],
+    reputation: 9100,
+    capabilities: ['price-check', 'asset-quote', 'spread'],
     recursive: false,
-    jobsCompleted: 31,
+    jobsCompleted: 340,
     jobsFailed: 4
   },
   {
-    name: 'Summarizer',
+    id: 'new_std',
+    plannerRole: 'NewsDigest',
+    capability: 'news',
+    endpoint: 'news',
+    price: 0.0015,
+    reputation: 7800,
+    capabilities: ['headline-summary', 'topic-digest'],
+    recursive: false,
+    jobsCompleted: 90,
+    jobsFailed: 10
+  },
+  {
+    id: 'new_api',
+    plannerRole: 'NewsDigest',
+    capability: 'news',
+    endpoint: 'news',
+    price: 0.004,
+    reputation: 9200,
+    capabilities: ['headline-summary', 'topic-digest', 'source-links'],
+    recursive: false,
+    jobsCompleted: 210,
+    jobsFailed: 5
+  },
+  {
+    id: 'sum_fst',
+    plannerRole: 'Summarizer',
+    capability: 'summarize',
     endpoint: 'summarize',
-    price: 0.001,
-    reputation: 8600,
+    price: 0.0008,
+    reputation: 8200,
     capabilities: ['text-summary', 'key-points'],
     recursive: false,
-    jobsCompleted: 55,
-    jobsFailed: 1
+    jobsCompleted: 400,
+    jobsFailed: 6
   },
   {
-    name: 'SentimentAI',
+    id: 'sum_pro',
+    plannerRole: 'Summarizer',
+    capability: 'summarize',
+    endpoint: 'summarize',
+    price: 0.003,
+    reputation: 9500,
+    capabilities: ['text-summary', 'key-points', 'long-context'],
+    recursive: false,
+    jobsCompleted: 280,
+    jobsFailed: 2
+  },
+  {
+    id: 'sen_lex',
+    plannerRole: 'SentimentAI',
+    capability: 'sentiment',
     endpoint: 'sentiment',
-    price: 0.001,
-    reputation: 8100,
+    price: 0.0008,
+    reputation: 7600,
     capabilities: ['sentiment', 'risk-tone'],
     recursive: false,
-    jobsCompleted: 48,
-    jobsFailed: 3
+    jobsCompleted: 150,
+    jobsFailed: 12
   },
   {
-    name: 'MathSolver',
+    id: 'sen_nlp',
+    plannerRole: 'SentimentAI',
+    capability: 'sentiment',
+    endpoint: 'sentiment',
+    price: 0.0025,
+    reputation: 9050,
+    capabilities: ['sentiment', 'risk-tone', 'fine-grained'],
+    recursive: false,
+    jobsCompleted: 310,
+    jobsFailed: 4
+  },
+  {
+    id: 'mat_sol',
+    plannerRole: 'MathSolver',
+    capability: 'math',
     endpoint: 'math',
     price: 0.002,
     reputation: 9000,
     capabilities: ['arithmetic', 'equation-solving'],
     recursive: false,
-    jobsCompleted: 60,
-    jobsFailed: 1
+    jobsCompleted: 500,
+    jobsFailed: 3
   },
   {
-    name: 'DeepResearch',
+    id: 'res_std',
+    plannerRole: 'DeepResearch',
+    capability: 'research',
     endpoint: 'research',
-    price: 0.01,
-    reputation: 7600,
+    price: 0.006,
+    reputation: 7400,
+    capabilities: ['recursive-research'],
+    recursive: true,
+    jobsCompleted: 45,
+    jobsFailed: 9
+  },
+  {
+    id: 'res_drp',
+    plannerRole: 'DeepResearch',
+    capability: 'research',
+    endpoint: 'research',
+    price: 0.012,
+    reputation: 8200,
     capabilities: ['recursive-research', 'multi-source-analysis'],
     recursive: true,
-    jobsCompleted: 20,
-    jobsFailed: 6
+    jobsCompleted: 88,
+    jobsFailed: 7
   }
 ];

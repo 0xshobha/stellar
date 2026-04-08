@@ -10,7 +10,7 @@ import { startQuerySession } from './manager.js';
 import { getProtocolTrace, getSessionMetrics, getSessionStatus, getSessionTransactions, listTransactions } from './lib/store.js';
 import { ApiErrorPayload } from './lib/types.js';
 import { sseHub } from './sse.js';
-import { getAgentCatalog, getAgentByName } from './stellar/contract.js';
+import { getAgentCatalog, getAgentById, startRegistryPoller } from './stellar/contract.js';
 import { createSponsoredWallet, getManagerWalletBalance } from './stellar/wallet.js';
 import { prepareXlmPayment, submitSignedTransaction } from './stellar/payments.js';
 import { fetchTransactionReceipt } from './stellar/receipt.js';
@@ -93,16 +93,17 @@ app.get('/agents/catalog', (_, res) => {
   );
 });
 
-app.get('/agents/reputation/:agentName', (req, res) => {
-  const agentName = req.params.agentName as Parameters<typeof getAgentByName>[0];
-  const agent = getAgentByName(agentName);
+app.get('/agents/reputation/:agentId', (req, res) => {
+  const agentId = String(req.params.agentId ?? '');
+  const agent = getAgentById(agentId);
   if (!agent) {
     res.status(404).json(fail({ code: 'AGENT_NOT_FOUND', message: 'Agent not found' }));
     return;
   }
   res.json(
     ok({
-      name: agent.name,
+      id: agent.id,
+      plannerRole: agent.plannerRole,
       reputation: agent.reputation,
       jobsCompleted: agent.jobsCompleted,
       jobsFailed: agent.jobsFailed,
@@ -337,7 +338,8 @@ function startServer(startPort: number, attemptsLeft = 5): void {
       walletCreate: '/api/wallet/create',
       paymentPrepare: '/api/payments/prepare',
       paymentSubmit: '/api/payments/submit',
-      catalog: '/agents/catalog'
+      catalog: '/agents/catalog',
+      systemStatus: '/api/system/status'
     });
   });
 
@@ -400,4 +402,5 @@ function setupGracefulShutdown(): void {
 }
 
 setupGracefulShutdown();
+startRegistryPoller();
 startServer(env.PORT);

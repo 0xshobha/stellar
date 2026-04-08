@@ -62,7 +62,7 @@ export default function Footer() {
 							SynergiStellar
 						</h2>
 						<p className="max-w-xs text-sm leading-6 text-slate-600">
-							x402 agent economy demo on Stellar, designed for transparent autonomous execution and payment-aware collaboration.
+							x402 agent economy on Stellar, designed for transparent autonomous execution and payment-aware collaboration.
 						</p>
 					</section>
 

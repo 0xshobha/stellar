@@ -23,6 +23,7 @@ export interface PaymentRecord {
   from: string;
   to: string;
   amount: number;
+  asset: string;
   txHash: string;
   explorerUrl: string;
   sessionId?: string;

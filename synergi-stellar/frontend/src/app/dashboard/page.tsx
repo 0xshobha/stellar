@@ -246,7 +246,6 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-600">x402 autonomous agent economy on Stellar</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="glass-chip w-fit">Live Demo Mode</span>
             {walletAddress ? (
               <>
                 <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">

@@ -34,7 +34,7 @@ export default function Navbar() {
           <Logo className="float-soft h-9 w-9 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-105" />
           <div className="leading-tight">
             <span className="block text-sm font-semibold tracking-wide text-slate-800">SynergiStellar</span>
-            <span className="block text-xs text-slate-500">x402 agent economy demo</span>
+            <span className="block text-xs text-slate-500">x402 agent economy platform</span>
           </div>
         </Link>
 

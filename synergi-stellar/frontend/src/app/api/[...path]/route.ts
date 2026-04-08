@@ -21,7 +21,7 @@ function resolveBackendPath(path: string[]): string {
   const direct = `/${path.join('/')}`;
   const first = path[0] ?? '';
 
-  const shouldUseApiPrefix = new Set(['query', 'events', 'status', 'transactions', 'wallet']);
+  const shouldUseApiPrefix = new Set(['query', 'events', 'status', 'transactions', 'wallet', 'payments']);
   if (shouldUseApiPrefix.has(first)) {
     return `/api/${path.join('/')}`;
   }

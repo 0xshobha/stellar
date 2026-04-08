@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AgentCatalogItem, AgentUsageMetric, PaymentRecord, ProtocolTraceItem, SessionMetrics, SessionStatus } from './types.js';
+import { env } from '../config.js';
 
 const transactions: PaymentRecord[] = [];
 const sessionStatuses = new Map<string, SessionStatus>();
@@ -12,14 +13,18 @@ function nowIso(): string {
 }
 
 function buildExplorerUrl(txHash: string): string {
-  return `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+  const network = env.STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet';
+  return `https://stellar.expert/explorer/${network}/tx/${txHash}`;
 }
 
-export function addTransaction(item: Omit<PaymentRecord, 'id' | 'timestamp' | 'explorerUrl'>): PaymentRecord {
+export function addTransaction(
+  item: Omit<PaymentRecord, 'id' | 'timestamp' | 'explorerUrl' | 'asset'> & { asset?: string }
+): PaymentRecord {
   const record: PaymentRecord = {
     id: randomUUID(),
     timestamp: nowIso(),
     explorerUrl: buildExplorerUrl(item.txHash),
+    asset: item.asset ?? 'USDC',
     ...item
   };
   transactions.unshift(record);

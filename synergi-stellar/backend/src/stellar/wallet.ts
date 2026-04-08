@@ -28,7 +28,35 @@ export interface CreatedWallet {
   createdAt: string;
 }
 
-const managerPublic = env.MANAGER_SECRET_KEY ? Keypair.fromSecret(env.MANAGER_SECRET_KEY).publicKey() : 'UNCONFIGURED_MANAGER';
+let cachedManagerKeypair: Keypair | null = null;
+let managerKeypairInit: Promise<Keypair> | null = null;
+
+async function ensureManagerKeypair(): Promise<Keypair> {
+  if (cachedManagerKeypair) return cachedManagerKeypair;
+
+  if (env.MANAGER_SECRET_KEY) {
+    cachedManagerKeypair = Keypair.fromSecret(env.MANAGER_SECRET_KEY);
+    return cachedManagerKeypair;
+  }
+
+  if (!managerKeypairInit) {
+    managerKeypairInit = (async () => {
+      const keypair = Keypair.random();
+      try {
+        await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(keypair.publicKey())}`);
+      } catch {}
+      cachedManagerKeypair = keypair;
+      return keypair;
+    })();
+  }
+
+  return managerKeypairInit;
+}
+
+export async function getManagerPublicKey(): Promise<string> {
+  const kp = await ensureManagerKeypair();
+  return kp.publicKey();
+}
 const BALANCE_TTL_MS = 20_000;
 let cachedBalance: WalletBalanceCache | null = null;
 let balanceRefreshInFlight: Promise<void> | null = null;
@@ -45,6 +73,7 @@ export async function getManagerWalletBalance(): Promise<WalletBalance> {
     });
   }
 
+  const managerPublic = await getManagerPublicKey();
   return cachedBalance?.value ?? buildFallbackBalance(managerPublic, now);
 }
 
@@ -69,6 +98,7 @@ export async function createSponsoredWallet(agentName: string): Promise<CreatedW
 
 async function refreshManagerBalance(): Promise<void> {
   const now = Date.now();
+  const managerPublic = await getManagerPublicKey();
   const value = await fetchWalletBalance(managerPublic, now);
   cachedBalance = {
     value,

@@ -11,7 +11,7 @@ export default function HomePage() {
         <div className="flex flex-wrap items-center justify-center gap-2">
           <span className="glass-chip">Welcome</span>
           <span className="glass-chip">Stellar Testnet</span>
-          <span className="glass-chip">x402 Demo</span>
+          <span className="glass-chip">x402 Payments</span>
         </div>
 
         <h1 className="mt-5 text-center text-3xl font-bold tracking-tight text-slate-900 sm:text-6xl">

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
-  description: 'Privacy policy for the SynergiStellar demo application.'
+  description: 'Privacy policy for the SynergiStellar application.'
 };
 
 export default function PrivacyPage() {
@@ -12,7 +12,7 @@ export default function PrivacyPage() {
         <h1 className="text-xl font-semibold">Privacy Policy</h1>
         <div className="mt-4 space-y-4 text-sm text-slate-300">
           <p>
-            SynergiStellar is a hackathon demo. The application stores session and transaction event data in memory for
+            SynergiStellar is a hackathon project. The application stores session and transaction event data in memory for
             runtime visualization and debugging.
           </p>
           <p>
@@ -20,7 +20,7 @@ export default function PrivacyPage() {
             regulated, or sensitive information.
           </p>
           <p>
-            Wallet and payment values displayed by this demo may be simulated depending on configuration. In strict x402
+            Wallet and payment values may be simulated depending on configuration. In strict x402
             mode, payment metadata and protocol traces are recorded for session diagnostics.
           </p>
           <p>

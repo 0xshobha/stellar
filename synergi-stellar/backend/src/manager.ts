@@ -145,6 +145,7 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
           from: 'ManagerAgent',
           to: worker.name,
           amount: response.data.pricePaid,
+          asset: 'USDC',
           txHash: response.data.txHash,
           sessionId,
           depth
@@ -173,6 +174,7 @@ async function runManagerSession(sessionId: string, query: string): Promise<void
             from: subTx.from ?? worker.name,
             to: subTx.agent,
             amount: subTx.pricePaid,
+            asset: 'USDC',
             txHash: subTx.txHash,
             sessionId,
             depth: Math.max(depth + 1, resolvedDepth)

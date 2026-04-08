@@ -12,6 +12,8 @@ import { ApiErrorPayload } from './lib/types.js';
 import { sseHub } from './sse.js';
 import { getAgentCatalog, getAgentByName } from './stellar/contract.js';
 import { createSponsoredWallet, getManagerWalletBalance } from './stellar/wallet.js';
+import { prepareXlmPayment, submitSignedTransaction } from './stellar/payments.js';
+import { fetchTransactionReceipt } from './stellar/receipt.js';
 
 const app = express();
 let activeServer: Server | null = null;
@@ -31,6 +33,17 @@ const transactionQuerySchema = z.object({
 
 const walletCreateSchema = z.object({
   name: z.string().min(2).max(80).optional()
+});
+
+const paymentPrepareSchema = z.object({
+  from: z.string().min(10),
+  amount: z.coerce.number().positive().max(1000).default(1),
+  memo: z.string().max(64).optional()
+});
+
+const paymentSubmitSchema = z.object({
+  signedXdr: z.string().min(20),
+  fromLabel: z.string().max(80).optional()
 });
 
 function ok<T>(data: T) {
@@ -187,6 +200,22 @@ app.get('/api/transactions', (req, res) => {
   );
 });
 
+app.get('/api/transactions/:txHash/receipt', async (req, res) => {
+  const txHash = String(req.params.txHash ?? '').trim();
+  if (!txHash) {
+    res.status(400).json(fail({ code: 'VALIDATION_ERROR', message: 'Missing transaction hash' }));
+    return;
+  }
+
+  try {
+    const receipt = await fetchTransactionReceipt(txHash);
+    res.json(ok(receipt));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json(fail({ code: 'TX_RECEIPT_FETCH_FAILED', message }));
+  }
+});
+
 app.get('/api/wallet/balance', async (_, res) => {
   try {
     const balance = await getManagerWalletBalance();
@@ -234,6 +263,57 @@ app.post('/api/wallet/create', async (req, res) => {
   }
 });
 
+app.post('/api/payments/prepare', async (req, res) => {
+  const parsed = paymentPrepareSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid payment preparation payload',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+
+  try {
+    const prepared = await prepareXlmPayment({
+      from: parsed.data.from,
+      amount: parsed.data.amount,
+      memo: parsed.data.memo
+    });
+    res.json(ok(prepared));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json(fail({ code: 'PAYMENT_PREPARE_FAILED', message }));
+  }
+});
+
+app.post('/api/payments/submit', async (req, res) => {
+  const parsed = paymentSubmitSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid payment submission payload',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+
+  try {
+    const submitted = await submitSignedTransaction({
+      signedXdr: parsed.data.signedXdr,
+      noteFrom: parsed.data.fromLabel
+    });
+    res.json(ok(submitted));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json(fail({ code: 'PAYMENT_SUBMIT_FAILED', message }));
+  }
+});
+
 function startServer(startPort: number, attemptsLeft = 5): void {
   const server = app.listen(startPort, env.HOST, () => {
     process.env.RUNTIME_BACKEND_BASE_URL = `http://localhost:${startPort}`;
@@ -255,6 +335,8 @@ function startServer(startPort: number, attemptsLeft = 5): void {
       transactions: '/api/transactions',
       walletBalance: '/api/wallet/balance',
       walletCreate: '/api/wallet/create',
+      paymentPrepare: '/api/payments/prepare',
+      paymentSubmit: '/api/payments/submit',
       catalog: '/agents/catalog'
     });
   });

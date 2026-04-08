@@ -26,7 +26,7 @@ export default function AboutPage() {
               <li>Frontend visualizes the live topology + protocol trace + transactions.</li>
             </ul>
             <p>
-              For the live demo view, open the{' '}
+              For the live operations view, open the{' '}
               <Link className="text-sky-700 underline decoration-sky-300" href="/dashboard">
                 Dashboard
               </Link>

@@ -16,6 +16,7 @@ import { engineScore } from './scoring.js';
 import { AgentCatalogItem, PlannerAgentRole } from '../infra/types.js';
 import { sseHub } from '../infra/sse.js';
 import {
+  ensureDevDemoCatalogIfEmpty,
   getAgentCatalog,
   plannerRoleToCapability,
   recordJobResult,
@@ -121,9 +122,20 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
 
   try {
     await refreshRegistryFromChain();
+    ensureDevDemoCatalogIfEmpty();
 
     let catalog = getAgentCatalog();
     logInfo('Manager loaded agent catalog', { sessionId, agentCount: catalog.length });
+
+    if (catalog.length === 0) {
+      const msg =
+        'No agents in catalog after registry sync. Set CONTRACT_ID + on-chain agents, or allow demo catalog (unset SYNS_DEMO_CATALOG=0 in development).';
+      registerSessionError(sessionId, msg);
+      sseHub.emit(sessionId, 'error', { message: msg });
+      logError('Manager aborted: empty catalog', { sessionId });
+      completeSession(sessionId, `Execution failed: ${msg}`);
+      return;
+    }
 
     const plan = await createPlan(query, catalog);
     const normalizedPlan = normalizePlanSteps(plan.steps, catalog, query);
@@ -167,8 +179,13 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
         const maxPrice = budgetUsd === undefined ? Number.MAX_VALUE : remaining;
 
         let sorobanDeclaredWinnerId: string | null = null;
-        const chainPick = await fetchBestAgentFromChain(capability);
-        sorobanDeclaredWinnerId = chainPick?.id ?? null;
+        try {
+          const chainPick = await fetchBestAgentFromChain(capability);
+          sorobanDeclaredWinnerId = chainPick?.id ?? null;
+        } catch (rpcErr) {
+          const rpcMsg = rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
+          logWarn('get_best_agent skipped (RPC error)', { sessionId, capability, message: rpcMsg });
+        }
 
         const worker = pickBestAgentForEngine(catalog, capability, maxPrice, tried);
         if (!worker) {
@@ -372,9 +389,10 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    updateSessionStatus(sessionId, { complete: true, summary: `Execution failed: ${message}` });
-    sseHub.emit(sessionId, 'error', { message });
-    logError('Manager session crashed', { sessionId, message });
+    registerSessionError(sessionId, message);
+    sseHub.emit(sessionId, 'error', { message: `Manager crashed: ${message}` });
+    logError('Manager session crashed', { sessionId, message, stack: error instanceof Error ? error.stack : undefined });
+    completeSession(sessionId, `Execution failed: ${message}`);
   }
 }
 

@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express';
 import { env } from '../infra/config.js';
 import { logInfo, logWarn } from '../infra/logger.js';
-import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
+import { agentPaywallMiddleware } from '../payments/x402Middleware.js';
 import { buildAgentResponse, getPaymentTxHashFromResponse } from './response.js';
 import { fetchJson } from '../infra/fetchUtil.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
@@ -89,7 +89,7 @@ function logPaymentLine(res: Response, registryId: string, amountUsdc: number): 
   });
 }
 
-router.post('/', createPaywallForEndpoint('price'), async (req, res) => {
+router.post('/', agentPaywallMiddleware('price'), async (req, res) => {
   const depth = Number(req.body?.depth ?? 0);
   const regId = String(req.header('x-registry-agent') ?? '').trim();
   const meta =

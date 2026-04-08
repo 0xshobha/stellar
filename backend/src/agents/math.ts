@@ -1,7 +1,7 @@
 import { Parser } from 'expr-eval';
 import { Router } from 'express';
 import { env } from '../infra/config.js';
-import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
+import { agentPaywallMiddleware } from '../payments/x402Middleware.js';
 import { buildAgentResponse } from './response.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
 
@@ -9,7 +9,7 @@ const mathParser = new Parser();
 
 const router = Router();
 
-router.post('/', createPaywallForEndpoint('math'), async (req, res) => {
+router.post('/', agentPaywallMiddleware('math'), async (req, res) => {
   const raw = String(req.body?.input ?? '0');
   const depth = Number(req.body?.depth ?? 0);
   const regId = String(req.header('x-registry-agent') ?? '').trim();

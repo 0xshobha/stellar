@@ -3,7 +3,7 @@ import { Keypair } from '@stellar/stellar-sdk';
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http';
 import { HTTPFacilitatorClient, x402ResourceServer } from '@x402/core/server';
 import { ExactStellarScheme as ExactStellarServerScheme } from '@x402/stellar/exact/server';
-import { env, getStellarCaip2Network } from '../infra/config.js';
+import { demoNoX402Enabled, env, getStellarCaip2Network } from '../infra/config.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
 import type { PlannerAgentRole } from '../infra/types.js';
 import { logError, logInfo } from '../infra/logger.js';
@@ -273,4 +273,12 @@ function resolveAgentRecipient(agentRegistryId: string): string | null {
   }
 
   return null;
+}
+
+/** Production: always x402. Development: skips paywall unless `SYNS_DEMO_NO_X402=0`. */
+export function agentPaywallMiddleware(endpoint: string) {
+  if (demoNoX402Enabled) {
+    return (_req: Request, _res: Response, next: NextFunction) => next();
+  }
+  return createPaywallForEndpoint(endpoint);
 }

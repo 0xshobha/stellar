@@ -52,6 +52,14 @@ function applyDemoCatalog(reason: unknown): void {
   });
 }
 
+/** If the catalog is still empty (e.g. SYNS_DEMO_CATALOG=0), load demo rows when allowed. */
+export function ensureDevDemoCatalogIfEmpty(): void {
+  if (agentState.size > 0 || !demoCatalogFallbackEnabled) {
+    return;
+  }
+  applyDemoCatalog('ensureDevDemoCatalogIfEmpty');
+}
+
 export async function refreshRegistryFromChain(): Promise<void> {
   try {
     const remote = await fetchAgentsFromChain();

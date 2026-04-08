@@ -3,7 +3,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'node:http';
 import { z } from 'zod';
-import { env } from './infra/config.js';
+import { demoNoX402Enabled, env } from './infra/config.js';
 import agentsRouter from './agents/index.js';
 import { logError, logInfo, logWarn } from './infra/logger.js';
 import { startQuerySession } from './core/manager.js';
@@ -286,8 +286,9 @@ const chainConfigHandler = (_: express.Request, res: express.Response) => {
     ok({
       network: env.STELLAR_NETWORK,
       contractId: env.CONTRACT_ID,
-      x402Mode: 'real' as const,
-      x402Enforced: true as const,
+      x402Mode: (demoNoX402Enabled ? 'demo' : 'real') as 'demo' | 'real',
+      x402Enforced: !demoNoX402Enabled,
+      workerPaywallSkipped: demoNoX402Enabled,
       contractConfigured: Boolean(env.CONTRACT_ID?.trim())
     })
   );
@@ -377,8 +378,8 @@ function startServer(startPort: number, attemptsLeft = 5): void {
       port: startPort,
       host: env.HOST,
       env: env.NODE_ENV,
-      x402Mode: 'real',
-      x402Enforced: true,
+      x402Mode: demoNoX402Enabled ? 'demo' : 'real',
+      x402Enforced: !demoNoX402Enabled,
       network: env.STELLAR_NETWORK,
       baseUrl: process.env.RUNTIME_BACKEND_BASE_URL
     });

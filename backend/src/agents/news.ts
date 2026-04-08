@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { env } from '../infra/config.js';
-import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
+import { agentPaywallMiddleware } from '../payments/x402Middleware.js';
 import { buildAgentResponse } from './response.js';
 import { fetchJson } from '../infra/fetchUtil.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
@@ -13,7 +13,7 @@ interface HnHit {
   objectID?: string;
 }
 
-router.post('/', createPaywallForEndpoint('news'), async (req, res) => {
+router.post('/', agentPaywallMiddleware('news'), async (req, res) => {
   const topic = String(req.body?.input ?? 'technology').slice(0, 200);
   const depth = Number(req.body?.depth ?? 0);
   const regId = String(req.header('x-registry-agent') ?? '').trim();

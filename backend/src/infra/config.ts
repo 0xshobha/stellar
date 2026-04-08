@@ -35,7 +35,9 @@ const envSchema = z.object({
   CONTRACT_ID: z.preprocess((v) => (typeof v === 'string' ? v.trim() : ''), z.string()),
   SOROBAN_RPC_URL: z.string().url().optional(),
   /** Set to `0` to disable in-memory demo agents in development when Soroban fails. */
-  SYNS_DEMO_CATALOG: z.enum(['0', '1']).optional()
+  SYNS_DEMO_CATALOG: z.enum(['0', '1']).optional(),
+  /** Set to `0` to require real x402 paywall on worker routes in development (default: paywall off in dev). */
+  SYNS_DEMO_NO_X402: z.enum(['0', '1']).optional()
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;
@@ -64,7 +66,6 @@ export const env: RuntimeEnv = {
 };
 
 const claudeEnabled = Boolean(env.ANTHROPIC_API_KEY || env.GROQ_API_KEY);
-console.log(`[Config] x402=real (mandatory) network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`);
 
 const configuredAgentPublicKeys = {
   AGENT_PRICE_PUBLIC_KEY: env.AGENT_PRICE_PUBLIC_KEY,
@@ -109,6 +110,14 @@ if (startupErrors.length > 0) {
 /** When true, failed Soroban `list_agents` loads `DEMO_AGENT_CATALOG` instead of exiting (development only). */
 export const demoCatalogFallbackEnabled =
   env.NODE_ENV !== 'production' && env.SYNS_DEMO_CATALOG !== '0';
+
+/** When true, worker `/agents/*` routes skip x402 middleware (development only; default on). */
+export const demoNoX402Enabled =
+  env.NODE_ENV !== 'production' && env.SYNS_DEMO_NO_X402 !== '0';
+
+console.log(
+  `[Config] x402=${demoNoX402Enabled ? 'skipped (dev demo)' : 'enforced'} network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`
+);
 
 export function getStellarCaip2Network(): 'stellar:testnet' | 'stellar:pubnet' {
   return env.STELLAR_NETWORK === 'mainnet' ? 'stellar:pubnet' : 'stellar:testnet';

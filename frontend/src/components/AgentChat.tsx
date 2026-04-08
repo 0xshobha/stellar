@@ -236,7 +236,13 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
           <code className="rounded bg-white/80 px-1">/api/query</code>. Set{' '}
           <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_REQUIRE_MANAGER_XLM=1</code> to force the payment flow.
         </p>
-      ) : null}
+      ) : (
+        <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+          <strong>Real wallet flow:</strong> connect Freighter on <strong>Stellar testnet</strong>, fund this account with a little XLM, enter the amount below, then Run Manager — you will sign the payment transaction before the manager starts. Per-hop USDC x402 still uses the server{' '}
+          <code className="rounded bg-white/70 px-1">MANAGER_SECRET_KEY</code> unless you set{' '}
+          <code className="rounded bg-white/70 px-1">SYNS_DEMO_NO_X402=0</code> and fund the manager for facilitator settlement.
+        </p>
+      )}
       <form className="mt-3 flex flex-col gap-3" onSubmit={submit}>
         <textarea
           className="soft-ring min-h-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner transition focus:border-sky-300"

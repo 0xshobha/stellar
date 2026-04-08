@@ -22,6 +22,7 @@ type ChainConfig = {
   contractId: string;
   x402Mode: string;
   x402Enforced: boolean;
+  workerPaywallSkipped?: boolean;
   contractConfigured: boolean;
 };
 
@@ -281,7 +282,11 @@ export default function DashboardPage() {
             Network: {chainConfig.network} · Contract:{' '}
             {chainConfig.contractConfigured ? shortAddress(chainConfig.contractId) : 'not configured'} · x402:{' '}
             {chainConfig.x402Mode}
-            {chainConfig.x402Enforced ? ' (enforced)' : ''}
+            {chainConfig.workerPaywallSkipped
+              ? ' (worker paywall off in dev)'
+              : chainConfig.x402Enforced
+                ? ' (workers enforce 402)'
+                : ''}
           </p>
         ) : null}
         {walletError ? <p className="mt-1 text-xs text-rose-600">{walletError}</p> : null}

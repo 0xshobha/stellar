@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { env } from '../infra/config.js';
-import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
+import { agentPaywallMiddleware } from '../payments/x402Middleware.js';
 import { buildAgentResponse } from './response.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
 import { fetchJson } from '../infra/fetchUtil.js';
@@ -32,7 +32,7 @@ function lexiconScore(text: string): { score: number; label: string; method: str
   return { score, label, method: 'lexicon' };
 }
 
-router.post('/', createPaywallForEndpoint('sentiment'), async (req, res) => {
+router.post('/', agentPaywallMiddleware('sentiment'), async (req, res) => {
   const input = String(req.body?.input ?? '').slice(0, 8000);
   const depth = Number(req.body?.depth ?? 0);
   const regId = String(req.header('x-registry-agent') ?? '').trim();

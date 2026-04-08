@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { env } from '../infra/config.js';
-import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
+import { agentPaywallMiddleware } from '../payments/x402Middleware.js';
 import { x402FetchJson } from '../payments/x402Client.js';
 import { buildAgentResponse } from './response.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
@@ -40,7 +40,7 @@ async function planCaps(topic: string): Promise<string[]> {
   return heuristicCaps(topic);
 }
 
-router.post('/', createPaywallForEndpoint('research'), async (req, res) => {
+router.post('/', agentPaywallMiddleware('research'), async (req, res) => {
   const input = String(req.body?.input ?? 'research topic');
   const depth = Number(req.body?.depth ?? 0);
   const sessionId = String(req.header('x-session-id') ?? randomUUID());

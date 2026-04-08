@@ -21,12 +21,12 @@ Create **`backend/src/agents/myfeed.ts`** (pattern from `price.ts`):
 
 ```typescript
 import { Router } from 'express';
-import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
+import { agentPaywallMiddleware } from '../payments/x402Middleware.js';
 import { buildAgentResponse } from './response.js';
 
 const router = Router();
 
-router.post('/', createPaywallForEndpoint('myfeed'), async (req, res) => {
+router.post('/', agentPaywallMiddleware('myfeed'), async (req, res) => {
   // ... compute result ...
   buildAgentResponse({ res, agentName: registryIdFromHeader, pricePaid, data, ... });
 });
@@ -52,7 +52,7 @@ const ENDPOINT_CAPABILITY: Record<string, string> = {
 };
 ```
 
-**Why:** `createPaywallForEndpoint` maps the HTTP segment to the **capability** used when picking defaults.
+**Why:** `agentPaywallMiddleware` maps the HTTP segment to the **capability** used when picking defaults; in development it skips the paywall unless `SYNS_DEMO_NO_X402=0`.
 
 ## 4. Map endpoint → planner role (if new segment)
 

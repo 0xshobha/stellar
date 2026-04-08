@@ -35,19 +35,22 @@ export function buildAgentResponse<T extends object>(params: {
   };
 }
 
-function resolveTxHash(res: Response, agentName: string): string {
+/** Settlement transaction id from x402 PAYMENT-RESPONSE header, if present. */
+export function getPaymentTxHashFromResponse(res: Response): string | undefined {
   const raw = res.getHeader('PAYMENT-RESPONSE');
-  if (typeof raw === 'string') {
-    try {
-      const decoded = decodePaymentResponseHeader(raw) as Record<string, unknown>;
-      const tx = decoded.transaction;
-      if (typeof tx === 'string' && tx.trim().length > 0) {
-        return tx;
-      }
-    } catch {
-      // Ignore malformed header and fallback to mock hash.
-    }
+  if (typeof raw !== 'string') return undefined;
+  try {
+    const decoded = decodePaymentResponseHeader(raw) as Record<string, unknown>;
+    const tx = decoded.transaction;
+    return typeof tx === 'string' && tx.trim().length > 0 ? tx : undefined;
+  } catch {
+    return undefined;
   }
+}
+
+function resolveTxHash(res: Response, agentName: string): string {
+  const settled = getPaymentTxHashFromResponse(res);
+  if (settled) return settled;
 
   return `unsettled-${agentName.toLowerCase()}-${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
 }

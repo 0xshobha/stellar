@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { env } from '../config.js';
+import { env } from './config.js';
 import { fetchJson } from './fetchUtil.js';
 
 const claude = env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null;

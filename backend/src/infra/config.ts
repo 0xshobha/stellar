@@ -22,8 +22,6 @@ const envSchema = z.object({
   MANAGER_SECRET_KEY: z.string().optional(),
   MANAGER_PUBLIC_KEY: z.string().optional(),
   STELLAR_NETWORK: z.enum(['testnet', 'mainnet']).default('testnet'),
-  X402_MODE: z.enum(['mock', 'real']).default('mock'),
-  X402_REAL_ONLY: z.enum(['true', 'false']).default('false'),
   FACILITATOR_URL: z.string().url().default('https://x402-stellar-491bf9f7e30b.herokuapp.com'),
   X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(300),
   X402_USDC_ASSET_ADDRESS: z.string().optional(),
@@ -34,8 +32,7 @@ const envSchema = z.object({
   AGENT_SENTIMENT_PUBLIC_KEY: z.string().optional(),
   AGENT_MATH_PUBLIC_KEY: z.string().optional(),
   AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
-  CONTRACT_ID: z.string().default('LOCAL_MOCK_CONTRACT'),
-  X402_ENFORCE: z.enum(['true', 'false']).default('false'),
+  CONTRACT_ID: z.string().min(1),
   SOROBAN_RPC_URL: z.string().url().optional()
 });
 
@@ -64,12 +61,8 @@ export const env: RuntimeEnv = {
   AGENT_SUMMARIZER_PUBLIC_KEY: parsedEnv.AGENT_SUMMARIZER_PUBLIC_KEY ?? parsedEnv.AGENT_SUMMARIZE_PUBLIC_KEY
 };
 
-export const isX402Enforced = env.X402_ENFORCE === 'true';
-export const isX402RealMode = env.X402_MODE === 'real';
-export const isX402RealOnly = env.X402_REAL_ONLY === 'true';
-
 const claudeEnabled = Boolean(env.ANTHROPIC_API_KEY || env.GROQ_API_KEY);
-console.log(`[Config] x402Mode=${env.X402_MODE} enforce=${env.X402_ENFORCE} network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`);
+console.log(`[Config] x402=real (mandatory) network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`);
 
 const configuredAgentPublicKeys = {
   AGENT_PRICE_PUBLIC_KEY: env.AGENT_PRICE_PUBLIC_KEY,
@@ -82,24 +75,27 @@ const configuredAgentPublicKeys = {
 
 const startupErrors: string[] = [];
 
-if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
-  startupErrors.push('CONTRACT_ID must be set (use LOCAL_MOCK_CONTRACT for local mode).');
+const contractId = env.CONTRACT_ID?.trim() ?? '';
+if (!contractId) {
+  startupErrors.push('CONTRACT_ID must be set to your deployed Soroban registry contract address.');
+} else if (!/^C[A-Z0-9]{55}$/.test(contractId)) {
+  startupErrors.push(
+    'CONTRACT_ID must be a valid Soroban contract id (56 characters, starts with C, base32).'
+  );
 }
 
-if (isX402RealMode) {
-  if (!env.MANAGER_SECRET_KEY || !env.MANAGER_SECRET_KEY.startsWith('S')) {
-    startupErrors.push('X402_MODE=real requires MANAGER_SECRET_KEY with a valid Stellar secret key.');
-  }
-
-  for (const [key, value] of Object.entries(configuredAgentPublicKeys)) {
-    if (!value || !/^G[A-Z2-7]{55}$/.test(value)) {
-      startupErrors.push(`X402_MODE=real requires ${key} to be a valid Stellar public key.`);
-    }
-  }
+if (!env.MANAGER_SECRET_KEY || !env.MANAGER_SECRET_KEY.startsWith('S')) {
+  startupErrors.push('MANAGER_SECRET_KEY must be a valid Stellar secret key (x402 payments are mandatory).');
 }
 
-if (isX402Enforced && !env.FACILITATOR_URL) {
-  startupErrors.push('X402_ENFORCE=true requires FACILITATOR_URL.');
+if (!env.FACILITATOR_URL?.trim()) {
+  startupErrors.push('FACILITATOR_URL is required for x402 settlement.');
+}
+
+for (const [key, value] of Object.entries(configuredAgentPublicKeys)) {
+  if (!value || !/^G[A-Z2-7]{55}$/.test(value)) {
+    startupErrors.push(`${key} must be a valid Stellar public key (x402 recipient).`);
+  }
 }
 
 if (startupErrors.length > 0) {
@@ -108,4 +104,17 @@ if (startupErrors.length > 0) {
 
 export function getStellarCaip2Network(): 'stellar:testnet' | 'stellar:pubnet' {
   return env.STELLAR_NETWORK === 'mainnet' ? 'stellar:pubnet' : 'stellar:testnet';
+}
+
+/** Stellar Expert transaction URL for the configured network. */
+export function stellarExpertTxUrl(txHash: string): string {
+  const net = env.STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet';
+  return `https://stellar.expert/explorer/${net}/tx/${txHash}`;
+}
+
+/** Stellar Expert contract page for the configured registry. */
+export function stellarExpertContractUrl(contractId?: string): string {
+  const id = (contractId ?? env.CONTRACT_ID).trim();
+  const net = env.STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet';
+  return `https://stellar.expert/explorer/${net}/contract/${id}`;
 }

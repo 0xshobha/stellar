@@ -71,6 +71,7 @@ export interface SessionStatus {
   totalSteps: number;
   partial: boolean;
   budgetUsd?: number;
+  failureCount?: number;
   protocolTrace: ProtocolTraceItem[];
   metrics: SessionMetrics;
   transactions: PaymentRecord[];
@@ -92,4 +93,29 @@ export interface StreamEvent {
   type: string;
   at?: string;
   [key: string]: unknown;
+}
+
+export interface RegistryCompetitorRow {
+  id: string;
+  plannerRole: PlannerAgentRole;
+  endpoint: string;
+  price: number;
+  reputation: number;
+  jobsCompleted: number;
+  jobsFailed: number;
+  chainOracleScore: number;
+  engineDecisionScore: number;
+  rankByChain: number;
+}
+
+export interface RegistryCompetitionSnapshot {
+  capability: string;
+  source: 'soroban' | 'catalog';
+  contractId: string;
+  contractExplorerUrl: string;
+  chainFormula: string;
+  managerFormula: string;
+  sorobanDeclaredWinnerId: string | null;
+  competitors: RegistryCompetitorRow[];
+  generatedAt: string;
 }

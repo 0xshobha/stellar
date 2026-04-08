@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import { env, isX402RealMode, isX402RealOnly } from '../config.js';
-import { createPaywallForEndpoint } from '../x402/middleware.js';
-import { x402FetchJson } from '../x402/client.js';
+import { env } from '../infra/config.js';
+import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
+import { x402FetchJson } from '../payments/x402Client.js';
 import { buildAgentResponse } from './response.js';
-import { getAgentById, pickBestAgentForCapability } from '../stellar/contract.js';
-import { completeJsonArray } from '../lib/llm.js';
+import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
+import { completeJsonArray } from '../infra/llm.js';
 
 const router = Router();
 const MAX_DEPTH = 3;
@@ -70,8 +70,6 @@ router.post('/', createPaywallForEndpoint('research'), async (req, res) => {
     depth?: number;
   }> = [];
 
-  const useFallback = !(isX402RealMode && isX402RealOnly);
-
   await Promise.all(
     caps.map(async (cap) => {
       const worker = pickBestAgentForCapability(cap, Number.MAX_VALUE);
@@ -99,16 +97,8 @@ router.post('/', createPaywallForEndpoint('research'), async (req, res) => {
           },
           {
             retries: 2,
-            timeoutMs: 14_000,
-            agentName: worker.id,
-            fallbackFactory: useFallback
-              ? (reason) => ({
-                  agent: worker.id,
-                  data: { fallback: true, reason },
-                  txHash: `fallback-${worker.id}-${Date.now().toString(16)}`,
-                  pricePaid: worker.price
-                })
-              : undefined
+            timeoutMs: 5_000,
+            agentName: worker.id
           }
         );
 

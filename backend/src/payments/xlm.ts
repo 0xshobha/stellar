@@ -7,8 +7,8 @@ import {
   Transaction,
   TransactionBuilder
 } from '@stellar/stellar-sdk';
-import { env } from '../config.js';
-import { addTransaction } from '../lib/store.js';
+import { env } from '../infra/config.js';
+import { addTransaction } from '../infra/store.js';
 import { getManagerPublicKey } from './wallet.js';
 
 function horizonServer(): Horizon.Server {

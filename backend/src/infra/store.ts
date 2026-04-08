@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { AgentCatalogItem, AgentUsageMetric, PaymentRecord, ProtocolTraceItem, SessionMetrics, SessionStatus } from './types.js';
-import { env } from '../config.js';
+import {
+  AgentCatalogItem,
+  AgentUsageMetric,
+  PaymentRecord,
+  ProtocolTraceItem,
+  SessionMetrics,
+  SessionStatus,
+  X402SettlementRecord
+} from './types.js';
+import { env } from './config.js';
 
 const transactions: PaymentRecord[] = [];
+const x402Settlements: X402SettlementRecord[] = [];
 const sessionStatuses = new Map<string, SessionStatus>();
 const protocolTraces = new Map<string, ProtocolTraceItem[]>();
 const sessionTransactions = new Map<string, PaymentRecord[]>();
@@ -74,6 +83,21 @@ export function listTransactions(limit = 10, sessionId?: string): PaymentRecord[
   return source.slice(0, Math.max(1, limit));
 }
 
+export function recordX402Settlement(rec: Omit<X402SettlementRecord, 'timestamp'> & { timestamp?: string }): X402SettlementRecord {
+  const row: X402SettlementRecord = {
+    agent: rec.agent,
+    amount: rec.amount,
+    txHash: rec.txHash,
+    timestamp: rec.timestamp ?? nowIso()
+  };
+  x402Settlements.unshift(row);
+  return row;
+}
+
+export function listX402Settlements(limit = 100): X402SettlementRecord[] {
+  return x402Settlements.slice(0, Math.max(1, limit));
+}
+
 export function createSessionStatus(sessionId: string, query: string, budgetUsd?: number): SessionStatus {
   const now = nowIso();
   const session: SessionStatus = {
@@ -90,7 +114,8 @@ export function createSessionStatus(sessionId: string, query: string, budgetUsd?
     completedSteps: 0,
     totalSteps: 0,
     partial: false,
-    budgetUsd
+    budgetUsd,
+    failureCount: 0
   };
   sessionStatuses.set(sessionId, session);
   protocolTraces.set(sessionId, []);

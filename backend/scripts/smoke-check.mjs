@@ -33,7 +33,9 @@ async function run() {
   rows.push(await checkEndpoint('Catalog', '/agents/catalog'));
   rows.push(await checkEndpoint('Wallet Balance', '/api/wallet/balance'));
   rows.push(await checkEndpoint('Chain Config', '/api/chain/config'));
+  rows.push(await checkEndpoint('Registry competition', '/api/registry/competition?capability=price'));
   rows.push(await checkEndpoint('Transactions', '/api/transactions?limit=1'));
+  rows.push(await checkEndpoint('x402 settlements ledger', '/api/payments/x402-settlements?limit=5'));
 
   const query = await checkEndpoint('Create Query Session', '/api/query', {
     method: 'POST',

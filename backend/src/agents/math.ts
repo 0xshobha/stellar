@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { env } from '../config.js';
-import { createPaywallForEndpoint } from '../x402/middleware.js';
+import { env } from '../infra/config.js';
+import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
 import { buildAgentResponse } from './response.js';
-import { getAgentById, pickBestAgentForCapability } from '../stellar/contract.js';
+import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
 
 const router = Router();
 

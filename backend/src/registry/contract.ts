@@ -1,8 +1,8 @@
-import type { AgentCatalogItem, PlannerAgentRole } from '../lib/types.js';
-import { staticCatalog } from '../lib/store.js';
-import { env } from '../config.js';
-import { logInfo, logWarn } from '../lib/logger.js';
-import { fetchAgentsFromChain, isLocalContract, submitRecordJobOnChain } from './sorobanRegistry.js';
+import type { AgentCatalogItem, PlannerAgentRole } from '../infra/types.js';
+import { staticCatalog } from '../infra/store.js';
+import { env } from '../infra/config.js';
+import { logInfo, logWarn } from '../infra/logger.js';
+import { fetchAgentsFromChain, submitRecordJobOnChain } from './soroban.js';
 
 const agentState = new Map<string, AgentCatalogItem>(staticCatalog.map((item) => [item.id, { ...item }]));
 const basePriceById = new Map<string, number>(staticCatalog.map((item) => [item.id, item.price]));
@@ -18,11 +18,11 @@ const allTransactions: Array<{
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 
 if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
-  throw new Error('CONTRACT_ID must be set (use LOCAL_MOCK_CONTRACT for local-only registry).');
+  throw new Error('CONTRACT_ID must be set to your deployed Soroban registry contract.');
 }
 
 export function startRegistryPoller(): void {
-  if (isLocalContract() || pollHandle) return;
+  if (pollHandle) return;
   void refreshRegistryFromChain();
   pollHandle = setInterval(() => {
     void refreshRegistryFromChain();
@@ -30,7 +30,6 @@ export function startRegistryPoller(): void {
 }
 
 export async function refreshRegistryFromChain(): Promise<void> {
-  if (isLocalContract()) return;
   const remote = await fetchAgentsFromChain();
   if (!remote || remote.length === 0) {
     logWarn('Registry chain sync produced no agents; keeping in-memory catalog');
@@ -141,9 +140,7 @@ export function recordJobResult(id: string, success: boolean): AgentCatalogItem 
     timestamp: new Date().toISOString()
   });
 
-  if (!isLocalContract()) {
-    void submitRecordJobOnChain(id, success);
-  }
+  void submitRecordJobOnChain(id, success);
 
   return { ...next };
 }

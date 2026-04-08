@@ -7,6 +7,17 @@ interface TransactionLogProps {
   transactions: PaymentRecord[];
 }
 
+/** Stellar transaction hashes are 64 hex chars; legacy mock/fallback prefixes are not on-chain. */
+function isLikelyOnChainStellarTxHash(hash: string): boolean {
+  if (!hash) return false;
+  if (hash.startsWith('fallback-') || hash.startsWith('mock-') || hash.startsWith('unsettled-')) return false;
+  return /^[a-f0-9]{64}$/i.test(hash);
+}
+
+function stellarExplorerNet(): 'public' | 'testnet' {
+  return process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet';
+}
+
 export default function TransactionLog({ transactions }: TransactionLogProps) {
   const sorted = [...transactions].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   const [receiptByTxHash, setReceiptByTxHash] = useState<Record<string, TransactionReceipt | null>>({});
@@ -47,7 +58,8 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
     if (item.explorerUrl && item.explorerUrl.includes('/tx/')) {
       return item.explorerUrl;
     }
-    return `https://stellar.expert/explorer/testnet/tx/${item.txHash}`;
+    const net = stellarExplorerNet();
+    return `https://stellar.expert/explorer/${net}/tx/${item.txHash}`;
   };
 
   const slipText = (item: PaymentRecord, verified: TransactionReceipt | null | undefined): string => {
@@ -55,7 +67,7 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
       'SynergiStellar Transaction Slip',
       '--------------------------------',
       `Transaction Hash: ${item.txHash}`,
-      `Status: ${verified ? (verified.successful ? 'Success' : 'Failed') : item.txHash.startsWith('fallback-') || item.txHash.startsWith('mock-') ? 'Simulated' : 'Settled'}`,
+      `Status: ${verified ? (verified.successful ? 'Success' : 'Failed') : isLikelyOnChainStellarTxHash(item.txHash) ? 'Settled' : 'Not on-chain'}`,
       `Amount: ${item.amount.toFixed(7)} ${item.asset || 'USDC'}`,
       `From: ${item.from}`,
       `To: ${item.to}`,
@@ -92,7 +104,7 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
       <h2 className="text-lg font-semibold text-slate-900">Transaction Log</h2>
       <div className="mt-3 space-y-2 text-sm">
         {sorted.map((item) => {
-          const isSimulated = item.txHash.startsWith('fallback-') || item.txHash.startsWith('mock-');
+          const isOnChain = isLikelyOnChainStellarTxHash(item.txHash);
           return (
             <article className="rounded-xl border border-slate-200 bg-white p-3 transition hover:-translate-y-0.5 hover:shadow-md" key={item.id}>
             <div className="flex items-center justify-between">
@@ -109,10 +121,10 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
                 </span>
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] ${
-                    isSimulated ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                    isOnChain ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
                   }`}
                 >
-                  {isSimulated ? 'simulated' : 'settled'}
+                  {isOnChain ? 'on-chain' : 'pending / unknown'}
                 </span>
               </div>
             </div>
@@ -125,7 +137,7 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
               className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700"
               onToggle={(event) => {
                 const details = event.currentTarget;
-                if (!details.open || isSimulated || receiptByTxHash[item.txHash] !== undefined || loadingTxHash === item.txHash) return;
+                if (!details.open || !isOnChain || receiptByTxHash[item.txHash] !== undefined || loadingTxHash === item.txHash) return;
                 void loadReceipt(item.txHash);
               }}
             >
@@ -143,7 +155,7 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
                 <p>
                   <span className="font-medium">Hash:</span> {item.txHash}
                 </p>
-                {!isSimulated ? (
+                {isOnChain ? (
                   <a
                     href={getExplorerUrl(item)}
                     target="_blank"
@@ -154,7 +166,7 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
                   </a>
                 ) : null}
                 <p>
-                  <span className="font-medium">Type:</span> {isSimulated ? 'Simulated' : 'On-chain settled'}
+                  <span className="font-medium">Type:</span> {isOnChain ? 'On-chain settled' : 'Hash does not look like a Stellar tx (or still pending)'}
                 </p>
                 {item.sessionId ? (
                   <p>
@@ -171,7 +183,7 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
               </div>
             </details>
 
-            {!isSimulated ? (
+            {isOnChain ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -199,10 +211,12 @@ export default function TransactionLog({ transactions }: TransactionLogProps) {
                 </a>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-500">Simulated transaction (no on-chain details page)</p>
+              <p className="mt-2 text-xs text-slate-500">
+                No Stellar Expert link until the hash looks like a 64-character on-chain transaction id.
+              </p>
             )}
 
-            {!isSimulated && Object.prototype.hasOwnProperty.call(receiptByTxHash, item.txHash) ? (
+            {isOnChain && Object.prototype.hasOwnProperty.call(receiptByTxHash, item.txHash) ? (
               receiptByTxHash[item.txHash] ? (
                 <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
                   <p className="font-semibold">Receipt</p>

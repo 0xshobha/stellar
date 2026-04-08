@@ -1,27 +1,30 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
-import { env } from './config.js';
-import { logError, logInfo, logWarn } from './lib/logger.js';
+import { env, stellarExpertTxUrl } from '../infra/config.js';
+import { logError, logInfo, logWarn } from '../infra/logger.js';
 import {
   addTransaction,
   completeSession,
   createSessionStatus,
   getSessionMetrics,
+  getSessionStatus,
   registerPaymentToSession,
   registerSessionError,
   updateSessionStatus
-} from './lib/store.js';
-import { AgentCatalogItem, PlannerAgentRole } from './lib/types.js';
-import { sseHub } from './sse.js';
+} from '../infra/store.js';
+import { engineScore } from './scoring.js';
+import { AgentCatalogItem, PlannerAgentRole } from '../infra/types.js';
+import { sseHub } from '../infra/sse.js';
 import {
   getAgentCatalog,
-  pickBestAgentForCapability,
   plannerRoleToCapability,
   recordJobResult,
-  scoreAgentDecision
-} from './stellar/contract.js';
-import { x402FetchJson } from './x402/client.js';
-import { isX402RealMode, isX402RealOnly } from './config.js';
+  refreshRegistryFromChain
+} from '../registry/contract.js';
+import { fetchBestAgentFromChain } from '../registry/soroban.js';
+import { x402FetchJson } from '../payments/x402Client.js';
+
+export { engineScore } from './scoring.js';
 
 interface ManagerStep {
   agentName: PlannerAgentRole;
@@ -47,9 +50,12 @@ interface RecursiveSubTransaction {
   attempts?: number;
 }
 
-const AGENT_TIMEOUT_MS = 14_000;
+type CatalogRow = ReturnType<typeof getAgentCatalog>[number];
+
+const AGENT_TIMEOUT_MS = 5_000;
 const MAX_RECURSION_DEPTH = 3;
-const MAX_STEP_ATTEMPTS = 3;
+/** Initial attempt + max 2 retries after failure */
+const MAX_RETRIES = 2;
 
 const claude = env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null;
 
@@ -64,8 +70,34 @@ function parseBudgetUsd(query: string): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-function catalogHasRole(agents: AgentCatalogItem[], role: PlannerAgentRole): boolean {
-  return agents.some((a) => a.plannerRole === role);
+function listAgentsForCapability(catalog: CatalogRow[], capability: string): AgentCatalogItem[] {
+  const c = capability.toLowerCase();
+  return catalog.filter((a) => a.capability.toLowerCase() === c);
+}
+
+function pickBestAgentForEngine(
+  catalog: CatalogRow[],
+  capability: string,
+  maxPriceUsd: number,
+  excludeIds: ReadonlySet<string>
+): AgentCatalogItem | null {
+  const candidates = listAgentsForCapability(catalog, capability).filter(
+    (a) => a.price <= maxPriceUsd && !excludeIds.has(a.id)
+  );
+  if (candidates.length === 0) return null;
+  return [...candidates].sort((a, b) => engineScore(b) - engineScore(a))[0] ?? null;
+}
+
+function incrementFailureCount(sessionId: string): void {
+  const current = getSessionStatus(sessionId);
+  if (!current) return;
+  updateSessionStatus(sessionId, {
+    failureCount: (current.failureCount ?? 0) + 1
+  });
+}
+
+function catalogHasRole(catalog: CatalogRow[], role: PlannerAgentRole): boolean {
+  return catalog.some((a) => a.plannerRole === role);
 }
 
 export function startQuerySession(query: string): string {
@@ -83,7 +115,16 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
   const budgetLimit = budgetUsd ?? Number.POSITIVE_INFINITY;
 
   try {
-    const catalog = getAgentCatalog();
+    await refreshRegistryFromChain().catch((err) => {
+      logWarn('Registry refresh skipped or failed', {
+        sessionId,
+        message: err instanceof Error ? err.message : String(err)
+      });
+    });
+
+    let catalog = getAgentCatalog();
+    logInfo('Manager loaded agent catalog', { sessionId, agentCount: catalog.length });
+
     const plan = await createPlan(query, catalog);
     const normalizedPlan = normalizePlanSteps(plan.steps, catalog, query);
     const prioritized = prioritizeSteps(normalizedPlan, catalog);
@@ -95,12 +136,13 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
 
     sseHub.emit(sessionId, 'plan', {
       plan: plan.explanation,
-      steps: prioritized
+      steps: prioritized,
+      note: 'Workers are chosen by the decision engine (reputation/price score), not by the planner.'
     });
     logInfo('Execution plan prepared', {
       sessionId,
       totalSteps: prioritized.length,
-      steps: prioritized.map((item) => item.agentName)
+      roles: prioritized.map((item) => item.agentName)
     });
 
     const outputs: Array<{ agent: string; result: unknown }> = [];
@@ -113,7 +155,7 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
       const tried = new Set<string>();
       let stepDone = false;
 
-      for (let attempt = 0; attempt < MAX_STEP_ATTEMPTS && !stepDone; attempt++) {
+      for (let attempt = 0; attempt <= MAX_RETRIES && !stepDone; attempt += 1) {
         const remaining = budgetLimit - spentSession;
         if (remaining <= 0 && budgetUsd !== undefined) {
           registerSessionError(sessionId, 'Budget exhausted');
@@ -121,11 +163,14 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
           break;
         }
 
-        const worker = pickBestAgentForCapability(
-          capability,
-          budgetUsd === undefined ? Number.MAX_VALUE : remaining,
-          tried
-        );
+        catalog = getAgentCatalog();
+        const maxPrice = budgetUsd === undefined ? Number.MAX_VALUE : remaining;
+
+        let sorobanDeclaredWinnerId: string | null = null;
+        const chainPick = await fetchBestAgentFromChain(capability).catch(() => null);
+        sorobanDeclaredWinnerId = chainPick?.id ?? null;
+
+        const worker = pickBestAgentForEngine(catalog, capability, maxPrice, tried);
         if (!worker) {
           registerSessionError(sessionId, `No agent available for ${capability} within budget`);
           sseHub.emit(sessionId, 'error', {
@@ -134,17 +179,38 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
           });
           break;
         }
-        tried.add(worker.id);
 
-        logInfo('Executing step', {
+        const score = engineScore(worker);
+        const pool = listAgentsForCapability(catalog, capability).filter(
+          (a) => a.price <= maxPrice && !tried.has(a.id)
+        );
+
+        logInfo('Manager engine decision', {
           sessionId,
-          agent: worker.id,
           capability,
+          chosenAgentId: worker.id,
+          engineScore: Number(score.toFixed(4)),
+          price: worker.price,
+          reputation: worker.reputation,
           attempt: attempt + 1,
-          depth,
-          completedSteps,
-          totalSteps: prioritized.length
+          maxAttempts: MAX_RETRIES + 1,
+          candidateCount: pool.length
         });
+
+        sseHub.emit(sessionId, 'engine-decision', {
+          capability,
+          plannerRole: step.agentName,
+          chosenAgentId: worker.id,
+          engineScore: Number(score.toFixed(4)),
+          price: worker.price,
+          reputation: worker.reputation,
+          attempt: attempt + 1,
+          candidatesConsidered: pool.length,
+          sorobanDeclaredWinnerId,
+          oracleAlignedWithHire: sorobanDeclaredWinnerId != null && sorobanDeclaredWinnerId === worker.id
+        });
+
+        tried.add(worker.id);
 
         sseHub.emit(sessionId, 'step-start', {
           step: completedSteps + 1,
@@ -162,7 +228,6 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
         });
 
         const endpointUrl = `${getBackendBaseUrl()}/agents/${worker.endpoint}`;
-        const useFallback = !(isX402RealMode && isX402RealOnly);
 
         try {
           const response = await x402FetchJson<WorkerResponse>(sessionId, endpointUrl, {
@@ -175,15 +240,7 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
           }, {
             retries: 2,
             timeoutMs: AGENT_TIMEOUT_MS,
-            agentName: worker.id,
-            fallbackFactory: useFallback
-              ? (reason) => ({
-                  agent: worker.id,
-                  pricePaid: 0,
-                  data: { fallback: true, reason },
-                  txHash: `fallback-${worker.endpoint}-${Date.now().toString(16)}`
-                })
-              : undefined
+            agentName: worker.id
           });
 
           spentSession += response.data.pricePaid;
@@ -204,6 +261,14 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
 
           registerPaymentToSession(sessionId, response.data.txHash, response.data.pricePaid, worker.id);
           recordJobResult(worker.id, true);
+
+          logInfo('Manager execution success', {
+            sessionId,
+            agent: worker.id,
+            totalCostSoFar: Number((spentSession).toFixed(6)),
+            txHash: response.data.txHash
+          });
+
           completedSteps += 1;
           updateSessionStatus(sessionId, { completedSteps });
           stepDone = true;
@@ -213,7 +278,7 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
             agent: worker.id,
             amount: response.data.pricePaid,
             txHash: response.data.txHash,
-            explorerUrl: `https://stellar.expert/explorer/testnet/tx/${response.data.txHash}`,
+            explorerUrl: stellarExpertTxUrl(response.data.txHash),
             fallbackUsed: response.fallbackUsed,
             attempts: response.attempts,
             depth
@@ -239,7 +304,7 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
               agent: subTx.agent,
               amount: subTx.pricePaid,
               txHash: subTx.txHash,
-              explorerUrl: `https://stellar.expert/explorer/testnet/tx/${subTx.txHash}`,
+              explorerUrl: stellarExpertTxUrl(subTx.txHash),
               depth: Math.max(depth + 1, resolvedDepth),
               parentAgent: worker.id,
               fallbackUsed: Boolean(subTx.fallbackUsed),
@@ -251,37 +316,36 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
             step: completedSteps,
             totalSteps: prioritized.length,
             agent: worker.id,
-            metrics: getSessionMetrics(sessionId)
-          });
-          logInfo('Step completed', {
-            sessionId,
-            agent: worker.id,
-            txHash: response.data.txHash,
-            paid: response.data.pricePaid,
-            completedSteps,
-            totalSteps: prioritized.length
+            metrics: getSessionMetrics(sessionId),
+            totalSpend: getSessionMetrics(sessionId).totalSpend,
+            agentsUsed: getSessionStatus(sessionId)?.agentsHired ?? [],
+            failures: getSessionStatus(sessionId)?.failureCount ?? 0
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           registerSessionError(sessionId, `${worker.id}: ${message}`);
+          incrementFailureCount(sessionId);
           recordJobResult(worker.id, false);
           sseHub.emit(sessionId, 'error', {
             agent: worker.id,
             message,
             depth,
-            attempt: attempt + 1
+            attempt: attempt + 1,
+            failures: getSessionStatus(sessionId)?.failureCount ?? 0
           });
-          logWarn('Step attempt failed', {
+          logWarn('Manager step attempt failed', {
             sessionId,
             agent: worker.id,
             message,
-            attempt: attempt + 1
+            attempt: attempt + 1,
+            retriesLeft: MAX_RETRIES - attempt
           });
-          if (attempt === MAX_STEP_ATTEMPTS - 1) {
+          if (attempt === MAX_RETRIES) {
             sseHub.emit(sessionId, 'step-failed', {
               step: completedSteps + 1,
               totalSteps: prioritized.length,
-              agent: worker.id
+              agent: worker.id,
+              failures: getSessionStatus(sessionId)?.failureCount ?? 0
             });
           }
         }
@@ -290,17 +354,23 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
 
     const summary = await summarizeFinal(query, outputs);
     const finalMetrics = getSessionMetrics(sessionId);
+    const finalStatus = getSessionStatus(sessionId);
     completeSession(sessionId, summary);
     sseHub.emit(sessionId, 'complete', {
       summary,
       metrics: finalMetrics,
+      totalSpend: finalMetrics.totalSpend,
+      agentsUsed: finalStatus?.agentsHired ?? [],
+      failureCount: finalStatus?.failureCount ?? 0,
       partial: Boolean(getSessionMetrics(sessionId).transactionCount < prioritized.length)
     });
     logInfo('Manager session completed', {
       sessionId,
       partial: Boolean(getSessionMetrics(sessionId).transactionCount < prioritized.length),
       transactionCount: finalMetrics.transactionCount,
-      totalSpend: finalMetrics.totalSpend
+      totalSpend: finalMetrics.totalSpend,
+      failureCount: finalStatus?.failureCount ?? 0,
+      agentsUsed: finalStatus?.agentsHired ?? []
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -312,11 +382,9 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
 
 async function createPlan(
   query: string,
-  agents: AgentCatalogItem[]
+  agents: CatalogRow[]
 ): Promise<{ explanation: string; steps: ManagerStep[] }> {
-  const roleList = [
-    ...new Set(agents.map((a) => a.plannerRole))
-  ].join('|');
+  const roleList = [...new Set(agents.map((a) => a.plannerRole))].join('|');
 
   if (!claude) {
     return localPlanner(query, agents);
@@ -329,7 +397,14 @@ async function createPlan(
       messages: [
         {
           role: 'user',
-          content: `Query: ${query}\nAvailable planner roles (pick at most one worker per role): ${roleList}\nReturn strict JSON {"explanation":"...","steps":[{"agentName":"One of the roles","reason":"...","input":"..."}]}`
+          content: `You are a PLANNER only. Output which high-level agent *roles* are needed and in what order. You do NOT choose specific workers, prices, or registry IDs — a separate decision engine scores all registered agents at execution time.
+
+Query: ${query}
+
+Allowed planner roles (use these exact names only, at most one step per role): ${roleList}
+
+Return strict JSON:
+{"explanation":"short rationale","steps":[{"agentName":"One of the roles above","reason":"why this role helps","input":"text passed to that worker"}]}`
         }
       ]
     });
@@ -342,7 +417,7 @@ async function createPlan(
     }
     const steps = zodSafeSteps(parsed.steps);
     if (steps.length === 0) return localPlanner(query, agents);
-    return { explanation: parsed.explanation || 'LLM plan', steps };
+    return { explanation: parsed.explanation || 'LLM plan (roles only)', steps };
   } catch {
     return localPlanner(query, agents);
   }
@@ -372,7 +447,7 @@ function zodSafeSteps(raw: ManagerStep[]): ManagerStep[] {
   return out;
 }
 
-function localPlanner(query: string, agents: AgentCatalogItem[]): { explanation: string; steps: ManagerStep[] } {
+function localPlanner(query: string, agents: CatalogRow[]): { explanation: string; steps: ManagerStep[] } {
   const lower = query.toLowerCase();
   const steps: ManagerStep[] = [];
 
@@ -393,32 +468,35 @@ function localPlanner(query: string, agents: AgentCatalogItem[]): { explanation:
   addStep('Summarizer', 'Consolidate findings');
 
   return {
-    explanation: 'Heuristic planner mapped intent to capability roles; registry picks competing workers.',
+    explanation:
+      'Heuristic planner (no LLM): ordered roles only. Concrete workers are selected by the engine: score = reputation×0.7 − price×0.3.',
     steps
   };
 }
 
-function bestRoleScore(role: PlannerAgentRole, agents: AgentCatalogItem[]): number {
+function bestRoleOrderingScore(role: PlannerAgentRole, catalog: CatalogRow[]): number {
   const cap = plannerRoleToCapability(role);
-  const candidates = agents.filter((a) => a.plannerRole === role);
+  const candidates = listAgentsForCapability(catalog, cap);
   if (candidates.length === 0) return -1;
-  return Math.max(...candidates.map((c) => scoreAgentDecision(c)));
+  return Math.max(...candidates.map((c) => engineScore(c)));
 }
 
-function prioritizeSteps(steps: ManagerStep[], agents: AgentCatalogItem[]): ManagerStep[] {
+function prioritizeSteps(steps: ManagerStep[], catalog: CatalogRow[]): ManagerStep[] {
   const nonSummary = steps
     .filter((step) => step.agentName !== 'Summarizer')
-    .sort((a, b) => bestRoleScore(b.agentName, agents) - bestRoleScore(a.agentName, agents));
+    .sort(
+      (a, b) => bestRoleOrderingScore(b.agentName, catalog) - bestRoleOrderingScore(a.agentName, catalog)
+    );
   const summary = steps.filter((step) => step.agentName === 'Summarizer');
   return [...nonSummary, ...summary];
 }
 
-function normalizePlanSteps(steps: ManagerStep[], agents: AgentCatalogItem[], query: string): ManagerStep[] {
+function normalizePlanSteps(steps: ManagerStep[], catalog: CatalogRow[], query: string): ManagerStep[] {
   const seen = new Set<PlannerAgentRole>();
   const normalized: ManagerStep[] = [];
 
   for (const step of steps) {
-    if (!catalogHasRole(agents, step.agentName)) continue;
+    if (!catalogHasRole(catalog, step.agentName)) continue;
     if (seen.has(step.agentName)) continue;
     seen.add(step.agentName);
     normalized.push({
@@ -429,7 +507,7 @@ function normalizePlanSteps(steps: ManagerStep[], agents: AgentCatalogItem[], qu
     });
   }
 
-  if (!seen.has('Summarizer') && catalogHasRole(agents, 'Summarizer')) {
+  if (!seen.has('Summarizer') && catalogHasRole(catalog, 'Summarizer')) {
     normalized.push({
       agentName: 'Summarizer',
       reason: 'Synthesize worker outputs',
@@ -474,7 +552,7 @@ async function summarizeFinal(
 ): Promise<string> {
   if (!claude) {
     try {
-      const { completeText } = await import('./lib/llm.js');
+      const { completeText } = await import('../infra/llm.js');
       return await completeText(
         `User query: ${query}\nWorker JSON results: ${JSON.stringify(results).slice(0, 100_000)}\nGive a tight final answer.`
       );
@@ -500,7 +578,7 @@ async function summarizeFinal(
     return textParts.map((item) => item.text).join('\n').trim();
   } catch {
     try {
-      const { completeText } = await import('./lib/llm.js');
+      const { completeText } = await import('../infra/llm.js');
       return await completeText(`Query: ${query}\nResults: ${JSON.stringify(results).slice(0, 80_000)}`);
     } catch {
       return [`Query: ${query}`, ...results.map((item) => `${item.agent}: ${JSON.stringify(item.result)}`)].join(

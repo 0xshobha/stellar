@@ -3,21 +3,22 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { getDocBySlug, listDocs } from "../../../lib/docs";
+import { getDocBySlugSegments, listDocs } from "../../../lib/docs";
 
 type Props = {
   params: {
-    slug: string;
+    slug: string[];
   };
 };
 
 export async function generateStaticParams() {
   const docs = await listDocs();
-  return docs.map((doc) => ({ slug: doc.slug }));
+  return docs.map((doc) => ({ slug: doc.segments }));
 }
 
 export default async function DocPage({ params }: Props) {
-  const doc = await getDocBySlug(params.slug);
+  const segments = params.slug ?? [];
+  const doc = await getDocBySlugSegments(segments);
   if (!doc) notFound();
 
   return (
@@ -29,7 +30,7 @@ export default async function DocPage({ params }: Props) {
             href="/docs"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:border-indigo-300 hover:text-indigo-700"
           >
-            Back to docs
+            All docs
           </Link>
         </div>
 

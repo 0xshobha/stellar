@@ -1,4 +1,4 @@
-import { env } from '../config.js';
+import { env } from '../infra/config.js';
 
 type HorizonTransaction = {
   hash: string;

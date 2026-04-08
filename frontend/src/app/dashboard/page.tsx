@@ -7,6 +7,7 @@ import AgentCatalog from '../../components/AgentCatalog';
 import AgentChat from '../../components/AgentChat';
 import ProtocolTrace from '../../components/ProtocolTrace';
 import TopologyGraph from '../../components/TopologyGraph';
+import CompetitionPanel from '../../components/CompetitionPanel';
 import TransactionLog from '../../components/TransactionLog';
 import { AgentCatalogItem, ApiEnvelope, SessionStatus, StreamEvent } from '../../lib/types';
 
@@ -280,6 +281,7 @@ export default function DashboardPage() {
             Network: {chainConfig.network} · Contract:{' '}
             {chainConfig.contractConfigured ? shortAddress(chainConfig.contractId) : 'not configured'} · x402:{' '}
             {chainConfig.x402Mode}
+            {chainConfig.x402Enforced ? ' (enforced)' : ''}
           </p>
         ) : null}
         {walletError ? <p className="mt-1 text-xs text-rose-600">{walletError}</p> : null}
@@ -302,6 +304,9 @@ export default function DashboardPage() {
           walletAddress={walletAddress}
         />
         <AgentCatalog catalog={catalog} />
+        <div className="lg:col-span-2">
+          <CompetitionPanel catalog={catalog} contractConfigured={chainConfig?.contractConfigured ?? false} />
+        </div>
         <TopologyGraph events={events} />
         <TransactionLog transactions={statusSnapshot?.transactions ?? []} />
       </div>

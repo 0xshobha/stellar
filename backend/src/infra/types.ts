@@ -39,6 +39,14 @@ export interface PaymentRecord {
   depth: number;
 }
 
+/** Middleware-settled x402 payment (on-chain). */
+export interface X402SettlementRecord {
+  agent: string;
+  amount: number;
+  txHash: string;
+  timestamp: string;
+}
+
 export interface AgentUsageMetric {
   agentName: string;
   count: number;
@@ -69,6 +77,8 @@ export interface SessionStatus {
   partial: boolean;
   /** Parsed from query text, e.g. "under $0.02" */
   budgetUsd?: number;
+  /** Count of failed worker attempts (each retry after failure increments). */
+  failureCount?: number;
 }
 
 export interface ProtocolTraceItem {

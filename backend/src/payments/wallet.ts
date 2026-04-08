@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
-import { env } from '../config.js';
+import { env } from '../infra/config.js';
 
 const HORIZON_TESTNET_ACCOUNT_URL = 'https://horizon-testnet.stellar.org/accounts';
 const TESTNET_USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';

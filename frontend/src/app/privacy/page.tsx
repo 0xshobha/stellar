@@ -20,8 +20,8 @@ export default function PrivacyPage() {
             regulated, or sensitive information.
           </p>
           <p>
-            Wallet and payment values may be simulated depending on configuration. In strict x402
-            mode, payment metadata and protocol traces are recorded for session diagnostics.
+            Payment flows use on-chain x402 settlement when configured; session payment metadata and protocol traces may be
+            recorded for diagnostics.
           </p>
           <p>
             This project does not provide production data retention guarantees. Restarting backend services may clear

@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { logDebug, logInfo } from './lib/logger.js';
+import { logDebug, logInfo } from './logger.js';
 
 interface SSEClient {
   id: string;

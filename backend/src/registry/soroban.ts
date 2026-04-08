@@ -12,9 +12,9 @@ import {
   scValToNative
 } from '@stellar/stellar-sdk';
 import { Api, Server as SorobanServer, assembleTransaction } from '@stellar/stellar-sdk/rpc';
-import type { AgentCatalogItem, PlannerAgentRole } from '../lib/types.js';
-import { env } from '../config.js';
-import { logError, logInfo, logWarn } from '../lib/logger.js';
+import type { AgentCatalogItem, PlannerAgentRole } from '../infra/types.js';
+import { env } from '../infra/config.js';
+import { logError, logInfo, logWarn } from '../infra/logger.js';
 
 const DEFAULT_RPC = 'https://soroban-testnet.stellar.org';
 
@@ -85,12 +85,92 @@ function sourcePublicKey(): string | null {
   return null;
 }
 
-export function isLocalContract(): boolean {
-  return !env.CONTRACT_ID || env.CONTRACT_ID === 'LOCAL_MOCK_CONTRACT';
+type ContractCallOperation = ReturnType<Contract['call']>;
+
+async function simulateRegistryOperation(operation: ContractCallOperation): Promise<unknown | null> {
+  const pk = sourcePublicKey();
+  if (!pk) {
+    logWarn('Soroban simulation skipped: no manager public key');
+    return null;
+  }
+
+  try {
+    const server = sorobanServer();
+    const account = await server.getAccount(pk);
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: networkPassphrase()
+    })
+      .addOperation(operation)
+      .setTimeout(60)
+      .build();
+
+    const sim = await server.simulateTransaction(tx);
+    if (!Api.isSimulationSuccess(sim) || !sim.result?.retval) {
+      return null;
+    }
+
+    return scValToNative(sim.result.retval);
+  } catch (error) {
+    logError('Soroban contract simulation failed', {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+function unwrapSorobanOption(raw: unknown): unknown {
+  if (raw == null) return null;
+  if (typeof raw !== 'object') return raw;
+  const o = raw as Record<string, unknown>;
+  if ('Some' in o) return o.Some ?? null;
+  if (o.tag === 'None' || o.tag === 0) return null;
+  if (o.tag === 'Some' || o.tag === 1) {
+    const vals = o.values;
+    if (Array.isArray(vals) && vals.length > 0) return vals[0];
+  }
+  return raw;
+}
+
+/** On-chain competitors in one capability bucket (Soroban `get_agents_by_capability`). */
+export async function fetchAgentsByCapabilityFromChain(capability: string): Promise<AgentCatalogItem[] | null> {
+  const cap = capability.trim().toLowerCase();
+  if (!cap) return null;
+
+  const contract = new Contract(env.CONTRACT_ID);
+  const native = await simulateRegistryOperation(
+    contract.call('get_agents_by_capability', nativeToScVal(cap, { type: 'string' }))
+  );
+
+  if (!Array.isArray(native)) {
+    logWarn('Soroban get_agents_by_capability unexpected shape');
+    return null;
+  }
+
+  const out: AgentCatalogItem[] = [];
+  for (const row of native) {
+    const item = parseAgentRow(row);
+    if (item) out.push(item);
+  }
+  return out.length > 0 ? out : [];
+}
+
+/** Soroban `get_best_agent` — same scoring as on-chain leaderboard. */
+export async function fetchBestAgentFromChain(capability: string): Promise<AgentCatalogItem | null> {
+  const cap = capability.trim().toLowerCase();
+  if (!cap) return null;
+
+  const contract = new Contract(env.CONTRACT_ID);
+  const native = await simulateRegistryOperation(
+    contract.call('get_best_agent', nativeToScVal(cap, { type: 'string' }))
+  );
+
+  const inner = unwrapSorobanOption(native);
+  if (inner == null) return null;
+  return parseAgentRow(inner);
 }
 
 export async function fetchAgentsFromChain(): Promise<AgentCatalogItem[] | null> {
-  if (isLocalContract()) return null;
   const pk = sourcePublicKey();
   if (!pk) {
     logWarn('Soroban read skipped: no manager public key');
@@ -140,7 +220,6 @@ export async function fetchAgentsFromChain(): Promise<AgentCatalogItem[] | null>
 
 /** Submit record_job_result(name: Symbol, success: bool). Uses manager secret. */
 export async function submitRecordJobOnChain(registrySymbol: string, success: boolean): Promise<boolean> {
-  if (isLocalContract()) return false;
   if (!env.MANAGER_SECRET_KEY?.startsWith('S')) return false;
 
   try {

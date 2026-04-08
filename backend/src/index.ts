@@ -3,17 +3,25 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'node:http';
 import { z } from 'zod';
-import { env } from './config.js';
+import { env } from './infra/config.js';
 import agentsRouter from './agents/index.js';
-import { logError, logInfo, logWarn } from './lib/logger.js';
-import { startQuerySession } from './manager.js';
-import { getProtocolTrace, getSessionMetrics, getSessionStatus, getSessionTransactions, listTransactions } from './lib/store.js';
-import { ApiErrorPayload } from './lib/types.js';
-import { sseHub } from './sse.js';
-import { getAgentCatalog, getAgentById, startRegistryPoller } from './stellar/contract.js';
-import { createSponsoredWallet, getManagerWalletBalance } from './stellar/wallet.js';
-import { prepareXlmPayment, submitSignedTransaction } from './stellar/payments.js';
-import { fetchTransactionReceipt } from './stellar/receipt.js';
+import { logError, logInfo, logWarn } from './infra/logger.js';
+import { startQuerySession } from './core/manager.js';
+import {
+  getProtocolTrace,
+  getSessionMetrics,
+  getSessionStatus,
+  getSessionTransactions,
+  listTransactions,
+  listX402Settlements
+} from './infra/store.js';
+import { ApiErrorPayload } from './infra/types.js';
+import { sseHub } from './infra/sse.js';
+import { getAgentCatalog, getAgentById, startRegistryPoller } from './registry/contract.js';
+import { getRegistryCompetitionSnapshot } from './registry/competition.js';
+import { createSponsoredWallet, getManagerWalletBalance } from './payments/wallet.js';
+import { prepareXlmPayment, submitSignedTransaction } from './payments/xlm.js';
+import { fetchTransactionReceipt } from './payments/receipt.js';
 
 const app = express();
 let activeServer: Server | null = null;
@@ -29,6 +37,14 @@ const sessionParamSchema = z.object({
 const transactionQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(20),
   sessionId: z.string().optional()
+});
+
+const x402LedgerQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(100)
+});
+
+const registryCompetitionQuerySchema = z.object({
+  capability: z.string().min(1).max(64)
 });
 
 const walletCreateSchema = z.object({
@@ -201,6 +217,21 @@ app.get('/api/transactions', (req, res) => {
   );
 });
 
+app.get('/api/payments/x402-settlements', (req, res) => {
+  const parsed = x402LedgerQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid query',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+  res.json(ok({ items: listX402Settlements(parsed.data.limit), generatedAt: new Date().toISOString() }));
+});
+
 app.get('/api/transactions/:txHash/receipt', async (req, res) => {
   const txHash = String(req.params.txHash ?? '').trim();
   if (!txHash) {
@@ -227,14 +258,37 @@ app.get('/api/wallet/balance', async (_, res) => {
   }
 });
 
+app.get('/api/registry/competition', async (req, res) => {
+  const parsed = registryCompetitionQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json(
+      fail({
+        code: 'VALIDATION_ERROR',
+        message: 'Query parameter "capability" is required (e.g. price, news, research).',
+        details: parsed.error.flatten()
+      })
+    );
+    return;
+  }
+
+  try {
+    const snapshot = await getRegistryCompetitionSnapshot(parsed.data.capability);
+    res.json(ok(snapshot));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logError('Registry competition snapshot failed', { message });
+    res.status(502).json(fail({ code: 'REGISTRY_COMPETITION_FAILED', message }));
+  }
+});
+
 const chainConfigHandler = (_: express.Request, res: express.Response) => {
   res.json(
     ok({
       network: env.STELLAR_NETWORK,
       contractId: env.CONTRACT_ID,
-      x402Mode: env.X402_MODE,
-      x402Enforced: env.X402_ENFORCE === 'true',
-      contractConfigured: env.CONTRACT_ID !== 'LOCAL_MOCK_CONTRACT'
+      x402Mode: 'real' as const,
+      x402Enforced: true as const,
+      contractConfigured: true
     })
   );
 };
@@ -323,8 +377,8 @@ function startServer(startPort: number, attemptsLeft = 5): void {
       port: startPort,
       host: env.HOST,
       env: env.NODE_ENV,
-      x402Mode: env.X402_MODE,
-      x402Enforce: env.X402_ENFORCE,
+      x402Mode: 'real',
+      x402Enforced: true,
       network: env.STELLAR_NETWORK,
       baseUrl: process.env.RUNTIME_BACKEND_BASE_URL
     });
@@ -338,6 +392,8 @@ function startServer(startPort: number, attemptsLeft = 5): void {
       walletCreate: '/api/wallet/create',
       paymentPrepare: '/api/payments/prepare',
       paymentSubmit: '/api/payments/submit',
+      x402Settlements: '/api/payments/x402-settlements',
+      registryCompetition: '/api/registry/competition?capability=price',
       catalog: '/agents/catalog',
       systemStatus: '/api/system/status'
     });
@@ -400,6 +456,30 @@ function setupGracefulShutdown(): void {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  logError('Unhandled promise rejection', { message, stack: reason instanceof Error ? reason.stack : undefined });
+});
+
+process.on('uncaughtException', (error) => {
+  logError('Uncaught exception', { message: error.message, stack: error.stack });
+});
+
+/** Last-resort Express error handler — keeps the process alive for ordinary request failures. */
+app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const message = err instanceof Error ? err.message : String(err);
+  logError('Express error', {
+    path: req.originalUrl,
+    method: req.method,
+    message,
+    stack: err instanceof Error ? err.stack : undefined
+  });
+  if (res.headersSent) {
+    return;
+  }
+  res.status(500).json(fail({ code: 'INTERNAL_ERROR', message: 'Request failed.' }));
+});
 
 setupGracefulShutdown();
 startRegistryPoller();

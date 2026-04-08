@@ -2,10 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { decodePaymentResponseHeader, wrapFetchWithPaymentFromConfig } from '@x402/fetch';
 import { createEd25519Signer, getUsdcAddress } from '@x402/stellar';
 import { ExactStellarScheme as ExactStellarClientScheme } from '@x402/stellar/exact/client';
-import { appendProtocolTrace } from '../lib/store.js';
-import { env, isX402RealMode, isX402RealOnly } from '../config.js';
-
-const STELLAR_TESTNET_NETWORK = 'stellar:testnet' as const;
+import { appendProtocolTrace } from '../infra/store.js';
+import { env, getStellarCaip2Network } from '../infra/config.js';
+import { logError, logInfo } from '../infra/logger.js';
 
 export interface X402FetchResult<T = unknown> {
   data: T;
@@ -15,10 +14,9 @@ export interface X402FetchResult<T = unknown> {
   attempts: number;
 }
 
-interface X402FetchOptions<T> {
+interface X402FetchOptions {
   retries?: number;
   timeoutMs?: number;
-  fallbackFactory?: (errorMessage: string) => T;
   agentName?: string;
 }
 
@@ -26,7 +24,7 @@ export async function x402FetchJson<T = unknown>(
   sessionId: string,
   url: string,
   init: RequestInit,
-  options: X402FetchOptions<T> = {}
+  options: X402FetchOptions = {}
 ): Promise<X402FetchResult<T>> {
   const retries = options.retries ?? 2;
   const timeoutMs = options.timeoutMs ?? 8000;
@@ -36,7 +34,8 @@ export async function x402FetchJson<T = unknown>(
   let attempt = 0;
   let lastError = 'Unknown x402 error';
 
-  const fetchImpl = getFetchWithMode();
+  const fetchImpl = getPaidFetch();
+  const stellarNetwork = getStellarCaip2Network();
 
   while (attempt <= retries) {
     attempt += 1;
@@ -63,7 +62,7 @@ export async function x402FetchJson<T = unknown>(
       const data = (await first.json()) as T;
       const paymentResponseHeader = first.headers.get('PAYMENT-RESPONSE') ?? first.headers.get('X-PAYMENT-RESPONSE');
       const settlementTx = paymentResponseHeader ? extractTransactionFromHeader(paymentResponseHeader) : null;
-      const enrichedData = mergeTxHash(data, settlementTx) as T;
+      const enrichedData = mergeTxHash(data, settlementTx, stellarNetwork) as T;
 
       appendProtocolTrace(sessionId, {
         timestamp: new Date().toISOString(),
@@ -83,9 +82,11 @@ export async function x402FetchJson<T = unknown>(
 
       const txHash = settlementTx ?? extractField(enrichedData, 'txHash');
       const paymentAttempted = Boolean(paymentResponseHeader);
-      console.log(
-        `[x402] mode=${isX402RealMode ? 'real' : 'mock'} agent=${options.agentName ?? 'unknown'} txHash=${txHash || 'n/a'} attempt=${attempt}`
-      );
+      logInfo('x402 client call succeeded', {
+        agent: options.agentName ?? 'unknown',
+        txHash: txHash || 'n/a',
+        attempt
+      });
 
       return {
         data: enrichedData,
@@ -96,22 +97,16 @@ export async function x402FetchJson<T = unknown>(
       };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
+      logError('x402 client attempt failed', {
+        agent: options.agentName ?? 'unknown',
+        url,
+        attempt,
+        message: lastError
+      });
       if (attempt > retries) {
         break;
       }
     }
-  }
-
-  if (options.fallbackFactory && !(isX402RealMode && isX402RealOnly)) {
-    const fallbackData = options.fallbackFactory(lastError);
-    console.warn(`[x402] fallback used agent=${options.agentName ?? 'unknown'} reason=${lastError}`);
-    return {
-      data: fallbackData,
-      paymentAttempted: true,
-      protocolTraceStepIds: traceIds,
-      fallbackUsed: true,
-      attempts: attempt
-    };
   }
 
   throw new Error(`x402 call failed after retries: ${lastError}`);
@@ -155,26 +150,24 @@ function extractField<T>(payload: T, key: string): string | null {
 
 let paidFetch: ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null = null;
 
-function getFetchWithMode(): typeof fetch {
-  if (!isX402RealMode) {
-    return fetch;
+function getPaidFetch(): typeof fetch {
+  if (!env.MANAGER_SECRET_KEY) {
+    throw new Error('MANAGER_SECRET_KEY is required for x402 settlement');
   }
 
-  if (!env.MANAGER_SECRET_KEY) {
-    throw new Error('MANAGER_SECRET_KEY is required for real x402 settlement mode');
-  }
+  const stellarNetwork = getStellarCaip2Network();
 
   if (!paidFetch) {
-    const signer = createEd25519Signer(env.MANAGER_SECRET_KEY, STELLAR_TESTNET_NETWORK);
+    const signer = createEd25519Signer(env.MANAGER_SECRET_KEY, stellarNetwork);
     paidFetch = wrapFetchWithPaymentFromConfig(fetch, {
       schemes: [
         {
-          network: STELLAR_TESTNET_NETWORK,
+          network: stellarNetwork,
           client: new ExactStellarClientScheme(signer)
         }
       ],
       paymentRequirementsSelector: (_, accepts) => {
-        const stellarOnly = accepts.filter((entry) => entry.network === STELLAR_TESTNET_NETWORK);
+        const stellarOnly = accepts.filter((entry) => entry.network === stellarNetwork);
         return stellarOnly[0] ?? accepts[0];
       }
     });
@@ -193,7 +186,7 @@ function extractTransactionFromHeader(header: string): string | null {
   }
 }
 
-function mergeTxHash<T>(payload: T, txHash: string | null): T {
+function mergeTxHash<T>(payload: T, txHash: string | null, stellarNetwork: string): T {
   if (!txHash || !payload || typeof payload !== 'object') return payload;
   const current = payload as Record<string, unknown>;
   return {
@@ -201,7 +194,9 @@ function mergeTxHash<T>(payload: T, txHash: string | null): T {
     agentTxHash: typeof current.txHash === 'string' ? current.txHash : null,
     txHash,
     paymentTxHash: txHash,
-    paymentNetwork: STELLAR_TESTNET_NETWORK,
-    settlementAsset: env.X402_USDC_ASSET_ADDRESS || getUsdcAddress(STELLAR_TESTNET_NETWORK)
+    paymentNetwork: stellarNetwork,
+    settlementAsset:
+      env.X402_USDC_ASSET_ADDRESS ||
+      getUsdcAddress(stellarNetwork as 'stellar:testnet' | 'stellar:pubnet')
   } as T;
 }

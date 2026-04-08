@@ -19,7 +19,7 @@ export default function WorkPage() {
               <strong>Manager plans steps</strong> and decides which agents to hire.
             </li>
             <li>
-              <strong>Workers quote a price</strong> and the manager pays (mock or real x402).
+              <strong>Workers quote a price</strong> and the manager pays via real x402 (HTTP 402 → sign → settle on Stellar).
             </li>
             <li>
               <strong>Recursive work</strong>: workers can hire sub-agents for sub-tasks.

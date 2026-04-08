@@ -1,8 +1,53 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import * as freighter from '@stellar/freighter-api';
 import { StreamEvent } from '../lib/types';
+
+function skipManagerXlm(): boolean {
+  const v = process.env.NEXT_PUBLIC_SKIP_MANAGER_XLM?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+function isNetworkFetchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const m = err.message.toLowerCase();
+  return m === 'failed to fetch' || m.includes('networkerror') || err.name === 'TypeError';
+}
+
+async function postAppJson<T>(
+  path: string,
+  body: unknown,
+  step: string
+): Promise<{ ok: boolean; data?: T; error?: { message?: string; hint?: string } }> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store'
+    });
+  } catch (err) {
+    if (isNetworkFetchError(err)) {
+      throw new Error(
+        `${step}: could not reach the app (network error). If you use the hosted site, set NEXT_PUBLIC_BACKEND_URL in Vercel to your live API and redeploy. Locally run \`npm run dev\` from the repo root so port 4000 is up.`
+      );
+    }
+    throw err instanceof Error ? new Error(`${step}: ${err.message}`) : err;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = await res.json();
+  } catch {
+    throw new Error(
+      `${step}: bad response (${res.status}). Is the Next.js API route proxy working? Check the Network tab for ${path}.`
+    );
+  }
+
+  return parsed as { ok: boolean; data?: T; error?: { message?: string; hint?: string } };
+}
 
 interface AgentChatProps {
   onSessionStart: (sessionId: string) => void;
@@ -18,6 +63,7 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialPayment, setInitialPayment] = useState<{ txHash: string; explorerUrl: string } | null>(null);
+  const xlmSkipped = useMemo(() => skipManagerXlm(), []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -26,93 +72,92 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
     setInitialPayment(null);
 
     try {
-      if (!walletAddress) {
+      if (!xlmSkipped && !walletAddress) {
         throw new Error('Please connect your Freighter wallet first!');
       }
 
-      const amountValue = Number(paymentAmount);
-      if (!Number.isFinite(amountValue) || amountValue <= 0) {
-        throw new Error('Enter a valid XLM amount greater than 0.');
+      if (!xlmSkipped) {
+        const amountValue = Number(paymentAmount);
+        if (!Number.isFinite(amountValue) || amountValue <= 0) {
+          throw new Error('Enter a valid XLM amount greater than 0.');
+        }
+
+        const prepared = await postAppJson<{ xdr: string; networkPassphrase: string }>(
+          '/api/payments/prepare',
+          {
+            from: walletAddress,
+            amount: amountValue,
+            memo: 'SynergiStellar'
+          },
+          'Prepare XLM payment'
+        );
+
+        if (!prepared.ok || !prepared.data) {
+          const hint = prepared.error?.hint ? ` ${prepared.error.hint}` : '';
+          throw new Error(
+            (prepared.error?.message ?? 'Failed to prepare payment transaction') + hint
+          );
+        }
+
+        let signResult: unknown;
+        try {
+          signResult = await freighter.signTransaction(prepared.data.xdr, {
+            networkPassphrase: prepared.data.networkPassphrase
+          });
+        } catch (fe) {
+          const raw = fe instanceof Error ? fe.message : String(fe);
+          throw new Error(
+            `Freighter signing failed (${raw}). Unlock Freighter, select Stellar testnet, and allow this site. If you see "Failed to fetch", the extension often cannot reach Horizon — use NEXT_PUBLIC_SKIP_MANAGER_XLM=1 in .env.local to skip this step for demos.`
+          );
+        }
+
+        const signedXdr =
+          typeof signResult === 'string'
+            ? signResult
+            : (signResult as { signedTxXdr?: string; error?: { message?: string } }).signedTxXdr;
+
+        if (!signedXdr || signedXdr.length < 20) {
+          const signError =
+            typeof signResult === 'object' && signResult && 'error' in signResult
+              ? (signResult as { error?: { message?: string } }).error?.message
+              : undefined;
+          throw new Error(signError ?? 'Freighter did not return a valid signed transaction.');
+        }
+
+        const submitted = await postAppJson<{ txHash: string; explorerUrl?: string }>(
+          '/api/payments/submit',
+          {
+            signedXdr,
+            fromLabel: walletAddress
+          },
+          'Submit XLM payment'
+        );
+
+        if (!submitted.ok || !submitted.data) {
+          const hint = submitted.error?.hint ? ` ${submitted.error.hint}` : '';
+          throw new Error((submitted.error?.message ?? 'Failed to submit payment transaction') + hint);
+        }
+
+        const explorerUrl =
+          submitted.data.explorerUrl && submitted.data.explorerUrl.includes('/tx/')
+            ? submitted.data.explorerUrl
+            : `https://stellar.expert/explorer/testnet/tx/${submitted.data.txHash}`;
+
+        setInitialPayment({
+          txHash: submitted.data.txHash,
+          explorerUrl
+        });
       }
 
-      // 1) Prepare an unsigned XLM payment tx on the backend.
-      const prepareRes = await fetch('/api/payments/prepare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: walletAddress,
-          amount: amountValue,
-          memo: 'SynergiStellar'
-        })
-      });
+      const payload = await postAppJson<{ sessionId: string }>(
+        '/api/query',
+        { query },
+        'Start manager session'
+      );
 
-      const prepared = (await prepareRes.json()) as
-        | { ok: true; data: { xdr: string; networkPassphrase: string } }
-        | { ok: false; error: { message: string } };
-
-      if (!prepareRes.ok || !prepared.ok) {
-        throw new Error(!prepared.ok ? prepared.error.message : 'Failed to prepare payment transaction');
-      }
-
-      // 2) Ask Freighter to sign the XDR (this triggers the popup).
-      const signResult = await freighter.signTransaction(prepared.data.xdr, {
-        networkPassphrase: prepared.data.networkPassphrase
-      });
-
-      const signedXdr =
-        typeof signResult === 'string'
-          ? signResult
-          : (signResult as { signedTxXdr?: string; error?: { message?: string } }).signedTxXdr;
-
-      if (!signedXdr || signedXdr.length < 20) {
-        const signError =
-          typeof signResult === 'object' && signResult && 'error' in signResult
-            ? (signResult as { error?: { message?: string } }).error?.message
-            : undefined;
-        throw new Error(signError ?? 'Freighter did not return a valid signed transaction.');
-      }
-
-      // 3) Submit signed XDR via backend to Horizon.
-      const submitRes = await fetch('/api/payments/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          signedXdr,
-          fromLabel: walletAddress
-        })
-      });
-
-      const submitted = (await submitRes.json()) as
-        | { ok: true; data: { txHash: string; explorerUrl?: string } }
-        | { ok: false; error: { message: string } };
-
-      if (!submitRes.ok || !submitted.ok) {
-        throw new Error(!submitted.ok ? submitted.error.message : 'Failed to submit payment transaction');
-      }
-
-      const explorerUrl =
-        submitted.data.explorerUrl && submitted.data.explorerUrl.includes('/tx/')
-          ? submitted.data.explorerUrl
-          : `https://stellar.expert/explorer/testnet/tx/${submitted.data.txHash}`;
-
-      setInitialPayment({
-        txHash: submitted.data.txHash,
-        explorerUrl
-      });
-
-      const response = await fetch('/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      const payload = (await response.json()) as { ok: boolean; data?: { sessionId: string }; error?: { message: string } };
       if (!payload.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? 'Failed to start session');
+        const hint = payload.error?.hint ? ` ${payload.error.hint}` : '';
+        throw new Error((payload.error?.message ?? 'Failed to start session') + hint);
       }
       onSessionStart(payload.data.sessionId);
     } catch (requestError) {
@@ -165,23 +210,32 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
   return (
     <section className="panel">
       <h2 className="text-lg font-semibold text-slate-900">Manager Agent Query</h2>
+      {xlmSkipped ? (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Initial XLM payment is skipped (<code className="rounded bg-white/80 px-1">NEXT_PUBLIC_SKIP_MANAGER_XLM</code>
+          ). Connect wallet only if you need it elsewhere; Run Manager posts directly to{' '}
+          <code className="rounded bg-white/80 px-1">/api/query</code>.
+        </p>
+      ) : null}
       <form className="mt-3 flex flex-col gap-3" onSubmit={submit}>
         <textarea
           className="soft-ring min-h-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner transition focus:border-sky-300"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
-          Payment Amount (XLM)
-          <input
-            type="number"
-            min="0.0000001"
-            step="0.0000001"
-            value={paymentAmount}
-            onChange={(event) => setPaymentAmount(event.target.value)}
-            className="soft-ring w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-          />
-        </label>
+        {!xlmSkipped ? (
+          <label className="flex flex-col gap-1 text-xs text-slate-600">
+            Payment Amount (XLM)
+            <input
+              type="number"
+              min="0.0000001"
+              step="0.0000001"
+              value={paymentAmount}
+              onChange={(event) => setPaymentAmount(event.target.value)}
+              className="soft-ring w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+            />
+          </label>
+        ) : null}
         <button
           className="soft-ring w-fit rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:-translate-y-0.5 hover:bg-sky-700 disabled:opacity-60"
           disabled={loading || isRunning}

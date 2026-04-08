@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 /**
  * Primary: NEXT_PUBLIC_BACKEND_URL (set in Vercel to your deployed API origin, no trailing slash).
  * Optional server-only override: BACKEND_URL.

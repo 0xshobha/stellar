@@ -8,9 +8,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Ensure we load the backend-local .env regardless of monorepo working directory.
-// - src -> ../.env resolves to backend/.env
-// - dist -> ../.env also resolves to backend/.env
-dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+// - src/infra -> ../../.env is backend/.env
+// - dist/infra -> ../../.env is backend/.env
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

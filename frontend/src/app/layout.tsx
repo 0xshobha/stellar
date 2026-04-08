@@ -4,9 +4,10 @@ import { ReactNode } from 'react';
 import Navbar from '../components/Navbar';
 import Footer from './AppFooter';
 import FooterGate from './FooterGate';
+import { getPublicSiteUrl } from '../lib/siteUrl';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  metadataBase: new URL(getPublicSiteUrl()),
   title: {
     default: 'SynergiStellar',
     template: '%s | SynergiStellar'

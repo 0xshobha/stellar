@@ -1,0 +1,13 @@
+# Optional Render Blueprint (New → Blueprint → connect repo).
+# Or create a Web Service manually: Root Directory = backend, same build/start as below.
+
+services:
+  - type: web
+    name: synergi-stellar-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health

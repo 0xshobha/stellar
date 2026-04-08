@@ -51,7 +51,10 @@ target/
 .swp
 .swo
 backend/.env.generated
-synergi-stellar/backend/.env.generated
+
+# Internal / local scratch (not for distribution)
+hack/
+digest.txt
 
 # OS / Editor files
 .DS_Store

@@ -483,13 +483,35 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
 
 setupGracefulShutdown();
 
-void refreshRegistryFromChain()
-  .then(() => {
-    startRegistryPoller();
-    startServer(env.PORT);
-  })
-  .catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    logError('Registry bootstrap failed — set CONTRACT_ID and register agents on-chain', { message });
-    process.exit(1);
-  });
+function bootstrapRegistryThenListen(): void {
+  const strictRegistry = env.NODE_ENV === 'production';
+
+  void refreshRegistryFromChain()
+    .then(() => {
+      startRegistryPoller();
+      startServer(env.PORT);
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (strictRegistry) {
+        logError('Registry bootstrap failed — set CONTRACT_ID and register agents on-chain', { message });
+        process.exit(1);
+        return;
+      }
+      logWarn('Registry bootstrap failed — API up for wiring checks; fix CONTRACT_ID for real runs', {
+        message
+      });
+      startServer(env.PORT);
+      void refreshRegistryFromChain()
+        .then(() => {
+          startRegistryPoller();
+          logInfo('Registry loaded after retry');
+        })
+        .catch((retryErr) => {
+          const m = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          logWarn('Registry still unavailable; poller not started', { message: m });
+        });
+    });
+}
+
+bootstrapRegistryThenListen();

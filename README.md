@@ -59,7 +59,11 @@ npm run dev
 ```
 
 - App: `http://localhost:3000`
-- API: `http://localhost:4000`
+- API: `http://localhost:4000` (or `http://127.0.0.1:4000`)
+
+Copy `frontend/.env.local.example` → `frontend/.env.local` so the Next.js `/api/*` proxy targets the backend (defaults to `127.0.0.1:4000` in dev if unset).
+
+**Local dev vs production:** In **`development`**, if Soroban bootstrap fails (bad `CONTRACT_ID`, RPC, or empty `list_agents`), the API still listens so you can verify `/health` and the dashboard proxy. In **`production`**, bootstrap failure exits the process.
 
 ## Repo layout
 
@@ -76,7 +80,7 @@ npm run dev
 
 ## Configuration
 
-Secrets only in **`backend/.env`**. **`CONTRACT_ID`** must be your **deployed** Soroban registry; the backend refuses to start until the contract returns at least one registered agent.
+Secrets only in **`backend/.env`**. **`CONTRACT_ID`** must be your **deployed** Soroban registry with registered agents for real manager runs. Production startup requires a successful `list_agents` sync; development keeps the server up with a warning if sync fails.
 
 ## License
 

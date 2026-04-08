@@ -10,7 +10,8 @@ function getBackendUrl(): string {
   if (primary) return primary;
   if (fallback) return fallback;
   if (process.env.NODE_ENV !== 'production') {
-    return 'http://localhost:4000';
+    // 127.0.0.1 avoids some environments where localhost resolves to ::1 while the API binds IPv4 only.
+    return 'http://127.0.0.1:4000';
   }
   throw new Error(
     'Missing NEXT_PUBLIC_BACKEND_URL (required in production for the API proxy). Set it in Vercel to your backend origin, e.g. https://your-api.onrender.com'
@@ -101,16 +102,21 @@ async function proxy(request: NextRequest, path: string[]): Promise<NextResponse
       headers: pickResponseHeaders(upstream)
     });
   } catch (error) {
+    const raw = error instanceof Error ? error.message : 'Frontend proxy failed to reach backend';
+    const localHint =
+      process.env.NODE_ENV !== 'production'
+        ? 'Start the API: from repo root run `npm run dev` (or `npm run dev -w backend`). It listens on port 4000 by default.'
+        : 'In Vercel → Settings → Environment Variables, set NEXT_PUBLIC_BACKEND_URL to your deployed API origin (no trailing slash), then redeploy.';
     return NextResponse.json(
       {
         ok: false,
         error: {
           code: 'BACKEND_PROXY_ERROR',
-          message: error instanceof Error ? error.message : 'Frontend proxy failed to reach backend',
-          hint: 'In Vercel → Settings → Environment Variables, set NEXT_PUBLIC_BACKEND_URL to your backend base URL (no trailing slash), then redeploy.'
+          message: raw.includes('fetch failed') ? `${raw} (backend unreachable)` : raw,
+          hint: localHint
         }
       },
-      { status: 500 }
+      { status: 502 }
     );
   }
 }

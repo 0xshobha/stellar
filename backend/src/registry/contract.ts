@@ -1,7 +1,9 @@
 import type { AgentCatalogItem, PlannerAgentRole } from '../infra/types.js';
 import { env } from '../infra/config.js';
-import { logError, logInfo } from '../infra/logger.js';
+import { logError, logInfo, logWarn } from '../infra/logger.js';
 import { fetchAgentsFromChain, submitRecordJobOnChain } from './soroban.js';
+
+const strictRegistryPoll = env.NODE_ENV === 'production';
 
 const agentState = new Map<string, AgentCatalogItem>();
 const basePriceById = new Map<string, number>();
@@ -25,8 +27,12 @@ export function startRegistryPoller(): void {
   pollHandle = setInterval(() => {
     void refreshRegistryFromChain().catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
-      logError('Registry poll failed — exiting', { message });
-      process.exit(1);
+      if (strictRegistryPoll) {
+        logError('Registry poll failed — exiting', { message });
+        process.exit(1);
+        return;
+      }
+      logWarn('Registry poll failed (dev)', { message });
     });
   }, 45_000);
 }

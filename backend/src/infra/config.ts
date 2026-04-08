@@ -33,7 +33,9 @@ const envSchema = z.object({
   AGENT_MATH_PUBLIC_KEY: z.string().optional(),
   AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
   CONTRACT_ID: z.preprocess((v) => (typeof v === 'string' ? v.trim() : ''), z.string()),
-  SOROBAN_RPC_URL: z.string().url().optional()
+  SOROBAN_RPC_URL: z.string().url().optional(),
+  /** Set to `0` to disable in-memory demo agents in development when Soroban fails. */
+  SYNS_DEMO_CATALOG: z.enum(['0', '1']).optional()
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;
@@ -103,6 +105,10 @@ for (const [key, value] of Object.entries(configuredAgentPublicKeys)) {
 if (startupErrors.length > 0) {
   throw new Error(`Environment configuration invalid:\n- ${startupErrors.join('\n- ')}`);
 }
+
+/** When true, failed Soroban `list_agents` loads `DEMO_AGENT_CATALOG` instead of exiting (development only). */
+export const demoCatalogFallbackEnabled =
+  env.NODE_ENV !== 'production' && env.SYNS_DEMO_CATALOG !== '0';
 
 export function getStellarCaip2Network(): 'stellar:testnet' | 'stellar:pubnet' {
   return env.STELLAR_NETWORK === 'mainnet' ? 'stellar:pubnet' : 'stellar:testnet';

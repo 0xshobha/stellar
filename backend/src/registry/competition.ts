@@ -1,6 +1,7 @@
-import { env, stellarExpertContractUrl } from '../infra/config.js';
+import { demoCatalogFallbackEnabled, env, stellarExpertContractUrl } from '../infra/config.js';
 import { chainOracleScore, engineScore } from '../core/scoring.js';
 import type { AgentCatalogItem } from '../infra/types.js';
+import { getAgentCatalog } from './contract.js';
 import { fetchAgentsByCapabilityFromChain, fetchBestAgentFromChain } from './soroban.js';
 
 export interface RegistryCompetitorRow {
@@ -18,7 +19,7 @@ export interface RegistryCompetitorRow {
 
 export interface RegistryCompetitionSnapshot {
   capability: string;
-  source: 'soroban';
+  source: 'soroban' | 'demo';
   contractId: string;
   contractExplorerUrl: string;
   chainFormula: string;
@@ -52,10 +53,8 @@ function rankCompetitors(items: AgentCatalogItem[]): RegistryCompetitorRow[] {
 export async function getRegistryCompetitionSnapshot(capability: string): Promise<RegistryCompetitionSnapshot> {
   const cap = capability.trim().toLowerCase();
   const base = {
-    source: 'soroban' as const,
     contractId: env.CONTRACT_ID,
     contractExplorerUrl: stellarExpertContractUrl(),
-    chainFormula: 'On-chain: reputation * 1000 - price_usdc (micro) — get_best_agent',
     managerFormula: 'reputation * 0.7 - price_usdc * 0.3 (manager hire score)',
     generatedAt: new Date().toISOString()
   };
@@ -63,21 +62,48 @@ export async function getRegistryCompetitionSnapshot(capability: string): Promis
   if (!cap) {
     return {
       capability: '',
+      source: 'soroban',
+      chainFormula: '',
       ...base,
       sorobanDeclaredWinnerId: null,
       competitors: []
     };
   }
 
-  const fromChain = await fetchAgentsByCapabilityFromChain(cap);
-  const chainWinner = await fetchBestAgentFromChain(cap);
-  const ranked = rankCompetitors(fromChain);
-  const winnerId = chainWinner?.id ?? ranked[0]?.id ?? null;
+  try {
+    const fromChain = await fetchAgentsByCapabilityFromChain(cap);
+    const chainWinner = await fetchBestAgentFromChain(cap);
+    const ranked = rankCompetitors(fromChain);
+    const winnerId = chainWinner?.id ?? ranked[0]?.id ?? null;
 
-  return {
-    capability: cap,
-    ...base,
-    sorobanDeclaredWinnerId: winnerId,
-    competitors: ranked
-  };
+    return {
+      capability: cap,
+      source: 'soroban',
+      chainFormula: 'On-chain: reputation * 1000 - price_usdc (micro) — get_best_agent',
+      ...base,
+      sorobanDeclaredWinnerId: winnerId,
+      competitors: ranked
+    };
+  } catch (err) {
+    if (!demoCatalogFallbackEnabled) {
+      throw err;
+    }
+    const pool = getAgentCatalog()
+      .map((row) => {
+        const { explorerUrl: _e, ...rest } = row;
+        return rest;
+      })
+      .filter((a) => a.capability.toLowerCase() === cap);
+    const ranked = rankCompetitors(pool);
+    const winnerId = ranked[0]?.id ?? null;
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      capability: cap,
+      source: 'demo',
+      chainFormula: `Demo leaderboard (Soroban RPC unavailable: ${reason.slice(0, 120)})`,
+      ...base,
+      sorobanDeclaredWinnerId: winnerId,
+      competitors: ranked
+    };
+  }
 }

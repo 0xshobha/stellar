@@ -104,7 +104,13 @@ export function startQuerySession(query: string): string {
   const budget = parseBudgetUsd(query);
   createSessionStatus(sessionId, query, budget);
   logInfo('Query session created', { sessionId, query, budgetUsd: budget });
-  void runManagerSession(sessionId, query, budget);
+  void runManagerSession(sessionId, query, budget).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    logError('Manager session crashed before completion', { sessionId, message });
+    registerSessionError(sessionId, message);
+    sseHub.emit(sessionId, 'error', { message });
+    completeSession(sessionId, `Execution failed: ${message}`);
+  });
   return sessionId;
 }
 

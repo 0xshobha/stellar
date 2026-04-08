@@ -1,6 +1,7 @@
 import type { AgentCatalogItem, PlannerAgentRole } from '../infra/types.js';
-import { env } from '../infra/config.js';
+import { demoCatalogFallbackEnabled, env } from '../infra/config.js';
 import { logError, logInfo, logWarn } from '../infra/logger.js';
+import { DEMO_AGENT_CATALOG } from './demoCatalog.js';
 import { fetchAgentsFromChain, submitRecordJobOnChain } from './soroban.js';
 
 const strictRegistryPoll = env.NODE_ENV === 'production';
@@ -37,15 +38,36 @@ export function startRegistryPoller(): void {
   }, 45_000);
 }
 
-export async function refreshRegistryFromChain(): Promise<void> {
-  const remote = await fetchAgentsFromChain();
+function applyDemoCatalog(reason: unknown): void {
   agentState.clear();
   basePriceById.clear();
-  for (const item of remote) {
-    agentState.set(item.id, { ...item });
-    basePriceById.set(item.id, item.price);
+  for (const item of DEMO_AGENT_CATALOG) {
+    const copy = { ...item };
+    agentState.set(copy.id, copy);
+    basePriceById.set(copy.id, copy.price);
   }
-  logInfo('Registry loaded from Soroban', { agents: remote.length });
+  logWarn('Demo catalog active (Soroban sync unavailable)', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    agents: DEMO_AGENT_CATALOG.length
+  });
+}
+
+export async function refreshRegistryFromChain(): Promise<void> {
+  try {
+    const remote = await fetchAgentsFromChain();
+    agentState.clear();
+    basePriceById.clear();
+    for (const item of remote) {
+      agentState.set(item.id, { ...item });
+      basePriceById.set(item.id, item.price);
+    }
+    logInfo('Registry loaded from Soroban', { agents: remote.length });
+  } catch (err) {
+    if (!demoCatalogFallbackEnabled) {
+      throw err;
+    }
+    applyDemoCatalog(err);
+  }
 }
 
 export function getAgentCatalog(): Array<AgentCatalogItem & { explorerUrl: string }> {

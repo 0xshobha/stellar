@@ -1,12 +1,27 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import * as freighter from '@stellar/freighter-api';
 import { StreamEvent } from '../lib/types';
 
-function skipManagerXlm(): boolean {
+function envRequiresManagerXlm(): boolean {
+  return process.env.NEXT_PUBLIC_REQUIRE_MANAGER_XLM === '1';
+}
+
+function envWantsSkipManagerXlm(): boolean {
   const v = process.env.NEXT_PUBLIC_SKIP_MANAGER_XLM?.trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'no') return false;
   return v === '1' || v === 'true' || v === 'yes';
+}
+
+function computeSkipManagerXlm(): boolean {
+  if (envRequiresManagerXlm()) return false;
+  if (envWantsSkipManagerXlm()) return true;
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return true;
+  }
+  return false;
 }
 
 function isNetworkFetchError(err: unknown): boolean {
@@ -63,7 +78,11 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialPayment, setInitialPayment] = useState<{ txHash: string; explorerUrl: string } | null>(null);
-  const xlmSkipped = useMemo(() => skipManagerXlm(), []);
+  const [xlmSkipped, setXlmSkipped] = useState(computeSkipManagerXlm);
+
+  useEffect(() => {
+    setXlmSkipped(computeSkipManagerXlm());
+  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -212,9 +231,10 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
       <h2 className="text-lg font-semibold text-slate-900">Manager Agent Query</h2>
       {xlmSkipped ? (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Initial XLM payment is skipped (<code className="rounded bg-white/80 px-1">NEXT_PUBLIC_SKIP_MANAGER_XLM</code>
-          ). Connect wallet only if you need it elsewhere; Run Manager posts directly to{' '}
-          <code className="rounded bg-white/80 px-1">/api/query</code>.
+          Initial XLM + Freighter step is skipped on <strong>localhost</strong> (or when{' '}
+          <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_SKIP_MANAGER_XLM=1</code>). Run Manager posts directly to{' '}
+          <code className="rounded bg-white/80 px-1">/api/query</code>. Set{' '}
+          <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_REQUIRE_MANAGER_XLM=1</code> to force the payment flow.
         </p>
       ) : null}
       <form className="mt-3 flex flex-col gap-3" onSubmit={submit}>

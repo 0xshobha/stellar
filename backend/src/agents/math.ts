@@ -1,8 +1,11 @@
+import { Parser } from 'expr-eval';
 import { Router } from 'express';
 import { env } from '../infra/config.js';
 import { createPaywallForEndpoint } from '../payments/x402Middleware.js';
 import { buildAgentResponse } from './response.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
+
+const mathParser = new Parser();
 
 const router = Router();
 
@@ -22,9 +25,9 @@ router.post('/', createPaywallForEndpoint('math'), async (req, res) => {
   let error: string | null = null;
 
   try {
-    const fn = new Function(`return (${sanitized});`);
-    const evaluated = Number(fn());
-    result = Number.isFinite(evaluated) ? evaluated : null;
+    const evaluated = mathParser.parse(sanitized).evaluate();
+    const n = typeof evaluated === 'number' ? evaluated : Number(evaluated);
+    result = Number.isFinite(n) ? n : null;
     if (result === null) error = 'Expression did not evaluate to a finite number';
   } catch {
     error = 'Invalid expression';

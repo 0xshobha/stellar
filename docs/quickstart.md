@@ -57,6 +57,6 @@ curl -s "http://localhost:4000/api/registry/competition?capability=price"
 - **503 on summarize** — no LLM key; expected.
 - **x402 errors** — manager wallet or facilitator; check logs and `backend/.env.example`.
 - **Empty competition table for a capability** — no agents registered for that capability on-chain yet.
-- **Backend exits on boot** — `CONTRACT_ID` missing/invalid, RPC unreachable, or `list_agents` returned zero rows.
+- **Backend exits on boot (production)** — `CONTRACT_ID` missing/invalid, RPC unreachable, or `list_agents` failed. In **development**, a **demo catalog** loads automatically when Soroban sync fails (disable with `SYNS_DEMO_CATALOG=0` in `backend/.env`).
 
 Next: **[Agents](/docs/core-concepts/agents)** and **[Payments](/docs/core-concepts/payments)**.

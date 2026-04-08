@@ -101,8 +101,12 @@ export default function CompetitionPanel({ catalog, contractConfigured }: Compet
             ))}
           </select>
           {snapshot ? (
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
-              Soroban RPC
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                snapshot.source === 'demo' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-800'
+              }`}
+            >
+              {snapshot.source === 'demo' ? 'Demo leaderboard' : 'Soroban RPC'}
             </span>
           ) : null}
         </div>

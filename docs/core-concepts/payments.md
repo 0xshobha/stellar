@@ -32,7 +32,7 @@
 
 ## Configuration (non-negotiable in this repo)
 
-- **No mock paywall** — real facilitator path only; see `backend/src/infra/config.ts` startup checks.
+- **Mandatory facilitator** — x402 settlement is required; see `backend/src/infra/config.ts` startup checks.
 - **Keys:** `MANAGER_SECRET_KEY`, all `AGENT_*_PUBLIC_KEY`, `FACILITATOR_URL`.
 
 ## APIs and observability

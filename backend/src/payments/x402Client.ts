@@ -10,7 +10,6 @@ export interface X402FetchResult<T = unknown> {
   data: T;
   paymentAttempted: boolean;
   protocolTraceStepIds: string[];
-  fallbackUsed: boolean;
   attempts: number;
 }
 
@@ -92,7 +91,6 @@ export async function x402FetchJson<T = unknown>(
         data: enrichedData,
         paymentAttempted,
         protocolTraceStepIds: traceIds,
-        fallbackUsed: false,
         attempts: attempt
       };
     } catch (error) {

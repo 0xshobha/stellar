@@ -46,7 +46,6 @@ interface RecursiveSubTransaction {
   pricePaid: number;
   from?: string;
   depth?: number;
-  fallbackUsed?: boolean;
   attempts?: number;
 }
 
@@ -115,12 +114,7 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
   const budgetLimit = budgetUsd ?? Number.POSITIVE_INFINITY;
 
   try {
-    await refreshRegistryFromChain().catch((err) => {
-      logWarn('Registry refresh skipped or failed', {
-        sessionId,
-        message: err instanceof Error ? err.message : String(err)
-      });
-    });
+    await refreshRegistryFromChain();
 
     let catalog = getAgentCatalog();
     logInfo('Manager loaded agent catalog', { sessionId, agentCount: catalog.length });
@@ -167,7 +161,7 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
         const maxPrice = budgetUsd === undefined ? Number.MAX_VALUE : remaining;
 
         let sorobanDeclaredWinnerId: string | null = null;
-        const chainPick = await fetchBestAgentFromChain(capability).catch(() => null);
+        const chainPick = await fetchBestAgentFromChain(capability);
         sorobanDeclaredWinnerId = chainPick?.id ?? null;
 
         const worker = pickBestAgentForEngine(catalog, capability, maxPrice, tried);
@@ -279,7 +273,6 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
             amount: response.data.pricePaid,
             txHash: response.data.txHash,
             explorerUrl: stellarExpertTxUrl(response.data.txHash),
-            fallbackUsed: response.fallbackUsed,
             attempts: response.attempts,
             depth
           });
@@ -307,7 +300,6 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
               explorerUrl: stellarExpertTxUrl(subTx.txHash),
               depth: Math.max(depth + 1, resolvedDepth),
               parentAgent: worker.id,
-              fallbackUsed: Boolean(subTx.fallbackUsed),
               attempts: Number(subTx.attempts ?? 1)
             });
           }
@@ -538,7 +530,6 @@ function extractRecursiveTransactions(payload: unknown): RecursiveSubTransaction
       pricePaid,
       from: typeof objectItem.from === 'string' ? objectItem.from : undefined,
       depth: Number(objectItem.depth ?? NaN),
-      fallbackUsed: Boolean(objectItem.fallbackUsed),
       attempts: Number(objectItem.attempts ?? 1)
     });
   }

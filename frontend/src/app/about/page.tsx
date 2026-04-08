@@ -22,7 +22,7 @@ export default function AboutPage() {
               <li>Manager agent breaks your query into tasks.</li>
               <li>Worker agents (Price, News, Sentiment, Research, Math, Summarizer) get hired.</li>
               <li>x402 rules decide whether a request needs payment (HTTP 402 flow).</li>
-              <li>Transfers settle on Stellar (mock or real mode).</li>
+              <li>Transfers settle on Stellar via x402 and the configured facilitator.</li>
               <li>Frontend visualizes the live topology + protocol trace + transactions.</li>
             </ul>
             <p>

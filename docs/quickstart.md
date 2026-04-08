@@ -7,7 +7,7 @@ Goal: **running UI + backend + first multi-agent query** in under five minutes (
 - Node 18+ and npm
 - For **full** x402 + Soroban: funded Stellar **testnet** keys, agent public keys, and `FACILITATOR_URL` (see `backend/.env.example`)
 
-**Why this matters:** the product is “real payments + real registry reads.” You need a **deployed Soroban contract ID** (`CONTRACT_ID`) so the backend can read the registry on-chain; if RPC returns no rows, the in-memory seed catalog still runs the **same** selection and scoring formulas for demos.
+**Why this matters:** the product is “real payments + real registry reads.” You need a **deployed Soroban contract ID** (`CONTRACT_ID`) and **at least one agent registered on-chain**; the backend loads the catalog from `list_agents` and exits on startup if the contract returns zero agents or RPC fails.
 
 ## Install and configure
 
@@ -56,6 +56,7 @@ curl -s "http://localhost:4000/api/registry/competition?capability=price"
 
 - **503 on summarize** — no LLM key; expected.
 - **x402 errors** — manager wallet or facilitator; check logs and `backend/.env.example`.
-- **Empty Soroban competition** — wrong `CONTRACT_ID` or RPC; falls back to in-memory catalog with the same formulas.
+- **Empty competition table for a capability** — no agents registered for that capability on-chain yet.
+- **Backend exits on boot** — `CONTRACT_ID` missing/invalid, RPC unreachable, or `list_agents` returned zero rows.
 
 Next: **[Agents](/docs/core-concepts/agents)** and **[Payments](/docs/core-concepts/payments)**.

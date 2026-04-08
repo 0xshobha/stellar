@@ -1,11 +1,10 @@
 import type { AgentCatalogItem, PlannerAgentRole } from '../infra/types.js';
-import { staticCatalog } from '../infra/store.js';
 import { env } from '../infra/config.js';
-import { logInfo, logWarn } from '../infra/logger.js';
+import { logError, logInfo } from '../infra/logger.js';
 import { fetchAgentsFromChain, submitRecordJobOnChain } from './soroban.js';
 
-const agentState = new Map<string, AgentCatalogItem>(staticCatalog.map((item) => [item.id, { ...item }]));
-const basePriceById = new Map<string, number>(staticCatalog.map((item) => [item.id, item.price]));
+const agentState = new Map<string, AgentCatalogItem>();
+const basePriceById = new Map<string, number>();
 
 const allTransactions: Array<{
   agentId: string;
@@ -23,25 +22,24 @@ if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
 
 export function startRegistryPoller(): void {
   if (pollHandle) return;
-  void refreshRegistryFromChain();
   pollHandle = setInterval(() => {
-    void refreshRegistryFromChain();
+    void refreshRegistryFromChain().catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logError('Registry poll failed — exiting', { message });
+      process.exit(1);
+    });
   }, 45_000);
 }
 
 export async function refreshRegistryFromChain(): Promise<void> {
   const remote = await fetchAgentsFromChain();
-  if (!remote || remote.length === 0) {
-    logWarn('Registry chain sync produced no agents; keeping in-memory catalog');
-    return;
-  }
+  agentState.clear();
+  basePriceById.clear();
   for (const item of remote) {
     agentState.set(item.id, { ...item });
-    if (!basePriceById.has(item.id)) {
-      basePriceById.set(item.id, item.price);
-    }
+    basePriceById.set(item.id, item.price);
   }
-  logInfo('Registry merged from Soroban', { agents: remote.length });
+  logInfo('Registry loaded from Soroban', { agents: remote.length });
 }
 
 export function getAgentCatalog(): Array<AgentCatalogItem & { explorerUrl: string }> {

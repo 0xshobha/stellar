@@ -1,6 +1,6 @@
 /**
  * Soroban RPC: read agent registry from chain and submit record_job_result.
- * Fails soft — caller falls back to in-memory catalog.
+ * Read paths throw on RPC/simulation failure so the runtime stays chain-backed.
  */
 import {
   BASE_FEE,
@@ -71,7 +71,7 @@ function sorobanServer(): SorobanServer {
   return new SorobanServer(url, { allowHttp: url.startsWith('http://') });
 }
 
-function sourcePublicKey(): string | null {
+function sourcePublicKey(): string {
   if (env.MANAGER_PUBLIC_KEY && /^G[A-Z2-7]{55}$/.test(env.MANAGER_PUBLIC_KEY)) {
     return env.MANAGER_PUBLIC_KEY;
   }
@@ -79,20 +79,21 @@ function sourcePublicKey(): string | null {
     try {
       return Keypair.fromSecret(env.MANAGER_SECRET_KEY).publicKey();
     } catch {
-      return null;
+      /* fall through */
     }
   }
-  return null;
+  throw new Error(
+    'Soroban reads require MANAGER_PUBLIC_KEY or a valid MANAGER_SECRET_KEY (simulation source account).'
+  );
 }
 
 type ContractCallOperation = ReturnType<Contract['call']>;
 
-async function simulateRegistryOperation(operation: ContractCallOperation): Promise<unknown | null> {
+async function simulateRegistryOperationStrict(
+  operation: ContractCallOperation,
+  context: string
+): Promise<unknown> {
   const pk = sourcePublicKey();
-  if (!pk) {
-    logWarn('Soroban simulation skipped: no manager public key');
-    return null;
-  }
 
   try {
     const server = sorobanServer();
@@ -107,15 +108,18 @@ async function simulateRegistryOperation(operation: ContractCallOperation): Prom
 
     const sim = await server.simulateTransaction(tx);
     if (!Api.isSimulationSuccess(sim) || !sim.result?.retval) {
-      return null;
+      const detail = sim && typeof sim === 'object' && 'error' in sim ? JSON.stringify(sim.error) : 'unknown';
+      throw new Error(`Soroban simulation did not succeed (${context}): ${detail}`);
     }
 
     return scValToNative(sim.result.retval);
   } catch (error) {
-    logError('Soroban contract simulation failed', {
-      message: error instanceof Error ? error.message : String(error)
-    });
-    return null;
+    if (error instanceof Error && error.message.startsWith('Soroban simulation')) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    logError('Soroban contract simulation failed', { context, message });
+    throw new Error(`Soroban ${context} failed: ${message}`);
   }
 }
 
@@ -133,18 +137,18 @@ function unwrapSorobanOption(raw: unknown): unknown {
 }
 
 /** On-chain competitors in one capability bucket (Soroban `get_agents_by_capability`). */
-export async function fetchAgentsByCapabilityFromChain(capability: string): Promise<AgentCatalogItem[] | null> {
+export async function fetchAgentsByCapabilityFromChain(capability: string): Promise<AgentCatalogItem[]> {
   const cap = capability.trim().toLowerCase();
-  if (!cap) return null;
+  if (!cap) return [];
 
   const contract = new Contract(env.CONTRACT_ID);
-  const native = await simulateRegistryOperation(
-    contract.call('get_agents_by_capability', nativeToScVal(cap, { type: 'string' }))
+  const native = await simulateRegistryOperationStrict(
+    contract.call('get_agents_by_capability', nativeToScVal(cap, { type: 'string' })),
+    'get_agents_by_capability'
   );
 
   if (!Array.isArray(native)) {
-    logWarn('Soroban get_agents_by_capability unexpected shape');
-    return null;
+    throw new Error('Soroban get_agents_by_capability returned unexpected shape');
   }
 
   const out: AgentCatalogItem[] = [];
@@ -152,17 +156,18 @@ export async function fetchAgentsByCapabilityFromChain(capability: string): Prom
     const item = parseAgentRow(row);
     if (item) out.push(item);
   }
-  return out.length > 0 ? out : [];
+  return out;
 }
 
-/** Soroban `get_best_agent` — same scoring as on-chain leaderboard. */
+/** Soroban `get_best_agent` — same scoring as on-chain leaderboard. Returns null when the contract has no winner. */
 export async function fetchBestAgentFromChain(capability: string): Promise<AgentCatalogItem | null> {
   const cap = capability.trim().toLowerCase();
   if (!cap) return null;
 
   const contract = new Contract(env.CONTRACT_ID);
-  const native = await simulateRegistryOperation(
-    contract.call('get_best_agent', nativeToScVal(cap, { type: 'string' }))
+  const native = await simulateRegistryOperationStrict(
+    contract.call('get_best_agent', nativeToScVal(cap, { type: 'string' })),
+    'get_best_agent'
   );
 
   const inner = unwrapSorobanOption(native);
@@ -170,52 +175,46 @@ export async function fetchBestAgentFromChain(capability: string): Promise<Agent
   return parseAgentRow(inner);
 }
 
-export async function fetchAgentsFromChain(): Promise<AgentCatalogItem[] | null> {
+/** Full registry from `list_agents`; throws if RPC fails or the contract returns zero agents. */
+export async function fetchAgentsFromChain(): Promise<AgentCatalogItem[]> {
   const pk = sourcePublicKey();
-  if (!pk) {
-    logWarn('Soroban read skipped: no manager public key');
-    return null;
+  const server = sorobanServer();
+  const contract = new Contract(env.CONTRACT_ID);
+  const account = await server.getAccount(pk);
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: networkPassphrase()
+  })
+    .addOperation(contract.call('list_agents'))
+    .setTimeout(60)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (!Api.isSimulationSuccess(sim) || !sim.result?.retval) {
+    throw new Error(
+      `Soroban list_agents simulation failed for contract ${env.CONTRACT_ID}. Check CONTRACT_ID, RPC, and network.`
+    );
   }
 
-  try {
-    const server = sorobanServer();
-    const contract = new Contract(env.CONTRACT_ID);
-    const account = await server.getAccount(pk);
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: networkPassphrase()
-    })
-      .addOperation(contract.call('list_agents'))
-      .setTimeout(60)
-      .build();
-
-    const sim = await server.simulateTransaction(tx);
-    if (!Api.isSimulationSuccess(sim) || !sim.result?.retval) {
-      logWarn('Soroban list_agents simulation did not succeed', {
-        contractId: env.CONTRACT_ID
-      });
-      return null;
-    }
-
-    const native = scValToNative(sim.result.retval) as unknown;
-    if (!Array.isArray(native)) {
-      logWarn('Soroban list_agents unexpected shape');
-      return null;
-    }
-
-    const out: AgentCatalogItem[] = [];
-    for (const row of native) {
-      const item = parseAgentRow(row);
-      if (item) out.push(item);
-    }
-    logInfo('Soroban registry synced', { count: out.length });
-    return out.length > 0 ? out : null;
-  } catch (error) {
-    logError('Soroban list_agents failed', {
-      message: error instanceof Error ? error.message : String(error)
-    });
-    return null;
+  const native = scValToNative(sim.result.retval) as unknown;
+  if (!Array.isArray(native)) {
+    throw new Error('Soroban list_agents returned unexpected shape');
   }
+
+  const out: AgentCatalogItem[] = [];
+  for (const row of native) {
+    const item = parseAgentRow(row);
+    if (item) out.push(item);
+  }
+
+  if (out.length === 0) {
+    throw new Error(
+      'Soroban list_agents returned zero agents. Register agents on-chain before running the manager.'
+    );
+  }
+
+  logInfo('Soroban registry synced', { count: out.length });
+  return out;
 }
 
 /** Submit record_job_result(name: Symbol, success: bool). Uses manager secret. */

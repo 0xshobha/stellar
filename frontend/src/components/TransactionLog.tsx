@@ -7,10 +7,10 @@ interface TransactionLogProps {
   transactions: PaymentRecord[];
 }
 
-/** Stellar transaction hashes are 64 hex chars; legacy mock/fallback prefixes are not on-chain. */
+/** Stellar transaction hashes are 64 hex chars; synthetic placeholders are not ledger ids. */
 function isLikelyOnChainStellarTxHash(hash: string): boolean {
   if (!hash) return false;
-  if (hash.startsWith('fallback-') || hash.startsWith('mock-') || hash.startsWith('unsettled-')) return false;
+  if (hash.startsWith('fallback-') || hash.startsWith('unsettled-')) return false;
   return /^[a-f0-9]{64}$/i.test(hash);
 }
 

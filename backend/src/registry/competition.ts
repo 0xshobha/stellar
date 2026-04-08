@@ -1,7 +1,6 @@
 import { env, stellarExpertContractUrl } from '../infra/config.js';
 import { chainOracleScore, engineScore } from '../core/scoring.js';
 import type { AgentCatalogItem } from '../infra/types.js';
-import { getAgentCatalog } from './contract.js';
 import { fetchAgentsByCapabilityFromChain, fetchBestAgentFromChain } from './soroban.js';
 
 export interface RegistryCompetitorRow {
@@ -19,8 +18,7 @@ export interface RegistryCompetitorRow {
 
 export interface RegistryCompetitionSnapshot {
   capability: string;
-  /** soroban = RPC field; catalog = merged in-memory catalog when RPC returned no rows */
-  source: 'soroban' | 'catalog';
+  source: 'soroban';
   contractId: string;
   contractExplorerUrl: string;
   chainFormula: string;
@@ -51,65 +49,35 @@ function rankCompetitors(items: AgentCatalogItem[]): RegistryCompetitorRow[] {
   }));
 }
 
-function buildCatalogSnapshot(capability: string): RegistryCompetitionSnapshot {
-  const cap = capability.trim().toLowerCase();
-  const catalog = getAgentCatalog();
-  const pool = catalog.filter((a) => a.capability.toLowerCase() === cap);
-  const ranked = rankCompetitors(pool);
-  const winner = ranked[0] ?? null;
-
-  return {
-    capability: cap,
-    source: 'catalog',
-    contractId: env.CONTRACT_ID,
-    contractExplorerUrl: stellarExpertContractUrl(),
-    chainFormula: 'reputation * 1000 - price_usdc_micro (same formula as Soroban get_best_agent)',
-    managerFormula: 'reputation * 0.7 - price_usdc * 0.3',
-    sorobanDeclaredWinnerId: winner?.id ?? null,
-    competitors: ranked,
-    generatedAt: new Date().toISOString()
-  };
-}
-
 export async function getRegistryCompetitionSnapshot(capability: string): Promise<RegistryCompetitionSnapshot> {
   const cap = capability.trim().toLowerCase();
+  const base = {
+    source: 'soroban' as const,
+    contractId: env.CONTRACT_ID,
+    contractExplorerUrl: stellarExpertContractUrl(),
+    chainFormula: 'On-chain: reputation * 1000 - price_usdc (micro) — get_best_agent',
+    managerFormula: 'reputation * 0.7 - price_usdc * 0.3 (manager hire score)',
+    generatedAt: new Date().toISOString()
+  };
+
   if (!cap) {
     return {
       capability: '',
-      source: 'catalog',
-      contractId: env.CONTRACT_ID,
-      contractExplorerUrl: stellarExpertContractUrl(),
-      chainFormula: '',
-      managerFormula: '',
+      ...base,
       sorobanDeclaredWinnerId: null,
-      competitors: [],
-      generatedAt: new Date().toISOString()
+      competitors: []
     };
   }
 
   const fromChain = await fetchAgentsByCapabilityFromChain(cap);
   const chainWinner = await fetchBestAgentFromChain(cap);
-
-  if (!fromChain || fromChain.length === 0) {
-    const fallback = buildCatalogSnapshot(cap);
-    return {
-      ...fallback,
-      sorobanDeclaredWinnerId: chainWinner?.id ?? fallback.sorobanDeclaredWinnerId
-    };
-  }
-
   const ranked = rankCompetitors(fromChain);
   const winnerId = chainWinner?.id ?? ranked[0]?.id ?? null;
 
   return {
     capability: cap,
-    source: 'soroban',
-    contractId: env.CONTRACT_ID,
-    contractExplorerUrl: stellarExpertContractUrl(),
-    chainFormula: 'On-chain: reputation * 1000 - price_usdc (micro) — get_best_agent',
-    managerFormula: 'reputation * 0.7 - price_usdc * 0.3 (manager hire score)',
+    ...base,
     sorobanDeclaredWinnerId: winnerId,
-    competitors: ranked,
-    generatedAt: new Date().toISOString()
+    competitors: ranked
   };
 }

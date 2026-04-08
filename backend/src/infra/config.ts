@@ -32,7 +32,7 @@ const envSchema = z.object({
   AGENT_SENTIMENT_PUBLIC_KEY: z.string().optional(),
   AGENT_MATH_PUBLIC_KEY: z.string().optional(),
   AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
-  CONTRACT_ID: z.string().min(1),
+  CONTRACT_ID: z.preprocess((v) => (typeof v === 'string' ? v.trim() : ''), z.string()),
   SOROBAN_RPC_URL: z.string().url().optional()
 });
 
@@ -77,7 +77,9 @@ const startupErrors: string[] = [];
 
 const contractId = env.CONTRACT_ID?.trim() ?? '';
 if (!contractId) {
-  startupErrors.push('CONTRACT_ID must be set to your deployed Soroban registry contract address.');
+  startupErrors.push(
+    'CONTRACT_ID is required. Deploy the Soroban agent-registry contract and paste the id into backend/.env.'
+  );
 } else if (!/^C[A-Z0-9]{55}$/.test(contractId)) {
   startupErrors.push(
     'CONTRACT_ID must be a valid Soroban contract id (56 characters, starts with C, base32).'

@@ -6,7 +6,7 @@ SynergiStellar is a **recursive agent-to-agent economy** on Stellar. Software ag
 
 - **Manager** — turns a user query into a sequence of roles to invoke, then picks concrete workers from a competitive catalog.
 - **Workers** — HTTP services (price, news, sentiment, math, summarize, research) gated by real x402 settlement.
-- **Registry** — Soroban contract (or in-memory mirror) holds reputation, price, and capability buckets so **many agents can compete for the same job**.
+- **Registry** — Soroban contract holds reputation, price, and capability buckets so **many agents can compete for the same job**.
 
 This is not “an API with a chat UI.” It is a **market-shaped runtime**: selection, payment, and reputation are first-class.
 

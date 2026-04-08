@@ -35,12 +35,11 @@ Multiple registry rows share one capability (two news agents, two price agents).
 
 Soroban uses a **different** leaderboard formula for `get_best_agent` (`reputation × 1000 − price_micro`). The dashboard **Agent competition** panel shows both so judges see **on-chain vs runtime** alignment.
 
-## Static catalog vs chain
+## On-chain catalog
 
-- **`staticCatalog`** in `backend/src/infra/store.ts` — seed rows when chain data is empty or for consistent scoring demos.
-- **`refreshRegistryFromChain`** — merges `list_agents` into the in-memory map for your deployed `CONTRACT_ID`.
+- **`refreshRegistryFromChain`** — replaces the in-process registry snapshot from Soroban `list_agents` for your deployed `CONTRACT_ID`.
 
-**Why this matters:** the runtime always targets **real contract reads**; the seed catalog is a **fallback** with the same formulas, not a separate “mock mode.”
+**Why this matters:** the manager and paywall always resolve agents from **contract state** synced over RPC, not from a bundled seed list.
 
 ## Related docs
 

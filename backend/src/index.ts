@@ -17,7 +17,7 @@ import {
 } from './infra/store.js';
 import { ApiErrorPayload } from './infra/types.js';
 import { sseHub } from './infra/sse.js';
-import { getAgentCatalog, getAgentById, startRegistryPoller } from './registry/contract.js';
+import { getAgentCatalog, getAgentById, refreshRegistryFromChain, startRegistryPoller } from './registry/contract.js';
 import { getRegistryCompetitionSnapshot } from './registry/competition.js';
 import { createSponsoredWallet, getManagerWalletBalance } from './payments/wallet.js';
 import { prepareXlmPayment, submitSignedTransaction } from './payments/xlm.js';
@@ -288,7 +288,7 @@ const chainConfigHandler = (_: express.Request, res: express.Response) => {
       contractId: env.CONTRACT_ID,
       x402Mode: 'real' as const,
       x402Enforced: true as const,
-      contractConfigured: true
+      contractConfigured: Boolean(env.CONTRACT_ID?.trim())
     })
   );
 };
@@ -482,5 +482,14 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
 });
 
 setupGracefulShutdown();
-startRegistryPoller();
-startServer(env.PORT);
+
+void refreshRegistryFromChain()
+  .then(() => {
+    startRegistryPoller();
+    startServer(env.PORT);
+  })
+  .catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    logError('Registry bootstrap failed — set CONTRACT_ID and register agents on-chain', { message });
+    process.exit(1);
+  });

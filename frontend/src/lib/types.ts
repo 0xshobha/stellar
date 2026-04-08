@@ -110,7 +110,7 @@ export interface RegistryCompetitorRow {
 
 export interface RegistryCompetitionSnapshot {
   capability: string;
-  source: 'soroban' | 'catalog';
+  source: 'soroban';
   contractId: string;
   contractExplorerUrl: string;
   chainFormula: string;

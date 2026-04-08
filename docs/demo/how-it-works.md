@@ -35,8 +35,8 @@ Use this for **live demos** and **recorded judging**. Pair with the running dash
 ## If something breaks during the demo
 
 - **No LLM** — summarizer step may 503; use a query that still shows **price/news/sentiment** paths.
-- **Facilitator down** — x402 fails closed; fall back to explaining flow and showing **middleware code**, not fake payments.
-- **RPC lag** — competition falls back to **local catalog** with identical formulas; say that explicitly.
+- **Facilitator down** — x402 fails closed; narrate the HTTP 402 handshake from code or logs.
+- **RPC errors** — registry reads throw; fix `SOROBAN_RPC_URL` / network or contract id before the demo.
 
 ## Related docs
 

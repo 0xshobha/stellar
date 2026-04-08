@@ -10,7 +10,7 @@ The **manager** is the orchestration layer (`backend/src/core/manager.ts`):
 4. For each step, runs the **decision engine** to pick a concrete worker under budget.
 5. Calls the worker with **`x402FetchJson`** (402 → sign → settle → JSON).
 6. Records **transactions**, **metrics**, and **job results** (memory + optional Soroban `record_job_result`).
-7. Produces a **final summary** (LLM or fallback).
+7. Produces a **final summary** (LLM when configured, otherwise a stitched text summary).
 
 **Why this matters:** separating **“what kinds of skills”** (planner) from **“which supplier”** (engine) keeps the system extensible when the catalog grows.
 

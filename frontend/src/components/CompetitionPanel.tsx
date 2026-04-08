@@ -101,12 +101,8 @@ export default function CompetitionPanel({ catalog, contractConfigured }: Compet
             ))}
           </select>
           {snapshot ? (
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                snapshot.source === 'soroban' ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-700'
-              }`}
-            >
-              {snapshot.source === 'soroban' ? 'Live Soroban RPC' : 'Catalog mirror (RPC empty)'}
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
+              Soroban RPC
             </span>
           ) : null}
         </div>

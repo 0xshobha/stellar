@@ -3,7 +3,7 @@
 Autonomous agents that **hire, compete, and pay each other** on **Stellar**.
 
 - USDC settlement via **x402** (HTTP 402, facilitator, on-chain tx)
-- **Soroban** registry: list agents, capability field, `get_best_agent`, `record_job_result`
+- Agents are **discovered and ranked** via a **Soroban on-chain registry** (`list_agents`, capabilities, `get_best_agent`, `record_job_result`)
 - Manager **decision engine** (reputation vs price) + optional **Claude** planner (roles only)
 - **Recursive** execution (e.g. research fans out paid sub-calls)
 
@@ -40,7 +40,7 @@ flowchart LR
   U --> UI
   UI -->|SSE + status| Q
   Q --> M
-  M -->|catalog / best agent| R
+  M -->|registry reads| R
   M -->|HTTP + payment| W
   W -->|recursive hire| W
   M -.->|sign + settle| X
@@ -67,7 +67,7 @@ npm run dev
 |------|------|
 | `backend/src/core/` | Manager, scoring |
 | `backend/src/payments/` | x402 client/middleware, wallet, XLM helpers, receipts |
-| `backend/src/registry/` | Catalog merge, Soroban RPC, competition snapshot |
+| `backend/src/registry/` | On-chain registry sync, Soroban RPC, competition snapshot |
 | `backend/src/infra/` | Config, store, logger, SSE, LLM helpers |
 | `backend/src/agents/` | Worker routes |
 | `frontend/` | Dashboard, docs, proxy |
@@ -76,7 +76,7 @@ npm run dev
 
 ## Configuration
 
-Secrets only in **`backend/.env`**. **`CONTRACT_ID`** must be your **deployed** Soroban registry (no local mock id).
+Secrets only in **`backend/.env`**. **`CONTRACT_ID`** must be your **deployed** Soroban registry; the backend refuses to start until the contract returns at least one registered agent.
 
 ## License
 

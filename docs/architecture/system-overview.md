@@ -29,7 +29,7 @@ User (Dashboard)
 | Agents | `src/agents/*.ts`, `src/agents/index.ts` | Capability routers + x402 paywall |
 | Manager | `src/core/manager.ts` | Plan, hire, pay, retries, metrics, Soroban job results |
 | Payments / x402 | `src/payments/x402Middleware.ts`, `src/payments/x402Client.ts`, `src/payments/wallet.ts`, … | Server paywall, client signing, Stellar helpers |
-| Registry | `src/registry/contract.ts`, `src/registry/soroban.ts`, `src/registry/competition.ts` | Catalog merge, RPC reads, competition snapshot |
+| Registry | `src/registry/contract.ts`, `src/registry/soroban.ts`, `src/registry/competition.ts` | On-chain registry sync, RPC reads, competition snapshot |
 | Infra | `src/infra/config.ts`, `src/infra/store.ts`, `src/infra/logger.ts`, … | Env, sessions, traces, static seed catalog |
 
 ### Soroban (`contracts/agent-registry/`)

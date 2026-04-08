@@ -65,6 +65,8 @@ Copy `frontend/.env.local.example` → `frontend/.env.local` so the Next.js `/ap
 
 **Local dev vs production:** In **`development`**, if Soroban bootstrap fails (bad `CONTRACT_ID`, RPC, or empty `list_agents`), the API still listens so you can verify `/health` and the dashboard proxy. In **`production`**, bootstrap failure exits the process.
 
+**Dashboard “Failed to fetch” on Run Manager:** Usually the **optional** Freighter XLM step (before `/api/query`) or the **Vercel → API** hop. Set `NEXT_PUBLIC_SKIP_MANAGER_XLM=1` in `frontend/.env.local` to skip XLM signing and call `/api/query` only. On **Vercel**, set **`NEXT_PUBLIC_BACKEND_URL`** to your deployed Express origin (not `localhost`).
+
 ## Repo layout
 
 | Path | Role |

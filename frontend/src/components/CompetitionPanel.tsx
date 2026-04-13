@@ -106,7 +106,7 @@ export default function CompetitionPanel({ catalog, contractConfigured }: Compet
                 snapshot.source === 'demo' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-800'
               }`}
             >
-              {snapshot.source === 'demo' ? 'Demo leaderboard' : 'Soroban RPC'}
+              {snapshot.source === 'demo' ? 'Local fallback snapshot' : 'Live Soroban registry'}
             </span>
           ) : null}
         </div>
@@ -114,8 +114,7 @@ export default function CompetitionPanel({ catalog, contractConfigured }: Compet
 
       {!contractConfigured ? (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Configure a valid <code className="rounded bg-white/80 px-1">CONTRACT_ID</code> in the backend for on-chain
-          registry reads.
+          Add a valid <code className="rounded bg-white/80 px-1">CONTRACT_ID</code> to enable live on-chain registry reads.
         </p>
       ) : null}
 
@@ -155,11 +154,18 @@ export default function CompetitionPanel({ catalog, contractConfigured }: Compet
             </thead>
             <tbody>
               {snapshot.competitors.map((row) => {
-                const isOracle = row.id === snapshot.sorobanDeclaredWinnerId;
+                const isOracle = snapshot.source === 'soroban' && row.id === snapshot.sorobanDeclaredWinnerId;
+                const isFallbackLeader = snapshot.source === 'demo' && row.rankByChain === 1;
                 return (
                   <tr
                     key={row.id}
-                    className={isOracle ? 'bg-violet-50/80' : 'border-t border-slate-100 bg-white'}
+                    className={
+                      isOracle
+                        ? 'bg-violet-50/80'
+                        : isFallbackLeader
+                          ? 'bg-amber-50/70'
+                          : 'border-t border-slate-100 bg-white'
+                    }
                   >
                     <td className="px-3 py-2 font-mono">{row.rankByChain}</td>
                     <td className="px-3 py-2">
@@ -168,6 +174,10 @@ export default function CompetitionPanel({ catalog, contractConfigured }: Compet
                       {isOracle ? (
                         <span className="ml-2 rounded bg-violet-200 px-1.5 py-0.5 text-[10px] font-bold text-violet-900">
                           Soroban #1
+                        </span>
+                      ) : isFallbackLeader ? (
+                        <span className="ml-2 rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">
+                          Local top score
                         </span>
                       ) : null}
                     </td>

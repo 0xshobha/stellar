@@ -3,7 +3,7 @@
 
 services:
   - type: web
-    name: synergi-stellar-api
+    name: stellar-net-api
     runtime: node
     region: oregon
     plan: free

@@ -42,7 +42,8 @@ async function planCaps(topic: string): Promise<string[]> {
 
 router.post('/', agentPaywallMiddleware('research'), async (req, res) => {
   const input = String(req.body?.input ?? 'research topic');
-  const depth = Number(req.body?.depth ?? 0);
+  const parsedDepth = Number(req.body?.depth);
+  const depth = Number.isFinite(parsedDepth) ? parsedDepth : 0;
   const sessionId = String(req.header('x-session-id') ?? randomUUID());
   const regId = String(req.header('x-registry-agent') ?? '').trim();
   const meta =
@@ -70,54 +71,52 @@ router.post('/', agentPaywallMiddleware('research'), async (req, res) => {
     depth?: number;
   }> = [];
 
-  await Promise.all(
-    caps.map(async (cap) => {
-      const worker = pickBestAgentForCapability(cap, Number.MAX_VALUE);
-      if (!worker) return;
-      const endpoint = worker.endpoint;
-      const url = `${getBackendBaseUrl()}/agents/${endpoint}`;
-      try {
-        const response = await x402FetchJson<{
-          data?: Record<string, unknown>;
-          txHash?: string;
-          pricePaid?: number;
-          agent?: string;
-        }>(
-          sessionId,
-          url,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-session-id': sessionId,
-              'x-parent-agent': meta.id,
-              'x-registry-agent': worker.id
-            },
-            body: JSON.stringify({ input, depth: depth + 1 })
+  for (const cap of caps) {
+    const worker = pickBestAgentForCapability(cap, Number.MAX_VALUE);
+    if (!worker) continue;
+    const endpoint = worker.endpoint;
+    const url = `${getBackendBaseUrl()}/agents/${endpoint}`;
+    try {
+      const response = await x402FetchJson<{
+        data?: Record<string, unknown>;
+        txHash?: string;
+        pricePaid?: number;
+        agent?: string;
+      }>(
+        sessionId,
+        url,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-id': sessionId,
+            'x-parent-agent': meta.id,
+            'x-registry-agent': worker.id
           },
-          {
-            retries: 2,
-            timeoutMs: 5_000,
-            agentName: worker.id
-          }
-        );
+          body: JSON.stringify({ input, depth: depth + 1 })
+        },
+        {
+          retries: 2,
+          timeoutMs: 15_000,
+          agentName: worker.id
+        }
+      );
 
-        const payload = response.data;
-        subResults[worker.id] = payload.data ?? payload;
-        subTransactions.push({
-          agent: worker.id,
-          txHash: typeof payload.txHash === 'string' ? payload.txHash : `unsettled-${randomUUID().slice(0, 8)}`,
-          pricePaid: Number(payload.pricePaid ?? worker.price),
-          from: meta.id,
-          depth: depth + 1
-        });
-      } catch (error) {
-        subResults[worker.id] = {
-          error: error instanceof Error ? error.message : String(error)
-        };
-      }
-    })
-  );
+      const payload = response.data;
+      subResults[worker.id] = payload.data ?? payload;
+      subTransactions.push({
+        agent: worker.id,
+        txHash: typeof payload.txHash === 'string' ? payload.txHash : `unsettled-${randomUUID().slice(0, 8)}`,
+        pricePaid: Number(payload.pricePaid ?? worker.price),
+        from: meta.id,
+        depth: depth + 1
+      });
+    } catch (error) {
+      subResults[worker.id] = {
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
 
   let totalSub = 0;
   for (const st of subTransactions) {

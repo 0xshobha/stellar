@@ -18,6 +18,7 @@ const allTransactions: Array<{
 }> = [];
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
+let demoCatalogActive = false;
 
 if (!env.CONTRACT_ID || !env.CONTRACT_ID.trim()) {
   throw new Error('CONTRACT_ID must be set to your deployed Soroban registry contract.');
@@ -50,9 +51,10 @@ function applyDemoCatalog(reason: unknown): void {
     reason: reason instanceof Error ? reason.message : String(reason),
     agents: DEMO_AGENT_CATALOG.length
   });
+  demoCatalogActive = true;
 }
 
-/** If the catalog is still empty (e.g. SYNS_DEMO_CATALOG=0), load demo rows when allowed. */
+/** Load fallback catalog only when explicitly enabled. */
 export function ensureDevDemoCatalogIfEmpty(): void {
   if (agentState.size > 0 || !demoCatalogFallbackEnabled) {
     return;
@@ -69,6 +71,7 @@ export async function refreshRegistryFromChain(): Promise<void> {
       agentState.set(item.id, { ...item });
       basePriceById.set(item.id, item.price);
     }
+    demoCatalogActive = false;
     logInfo('Registry loaded from Soroban', { agents: remote.length });
   } catch (err) {
     if (!demoCatalogFallbackEnabled) {
@@ -76,6 +79,10 @@ export async function refreshRegistryFromChain(): Promise<void> {
     }
     applyDemoCatalog(err);
   }
+}
+
+export function isDemoCatalogActive(): boolean {
+  return demoCatalogActive;
 }
 
 export function getAgentCatalog(): Array<AgentCatalogItem & { explorerUrl: string }> {
@@ -197,12 +204,12 @@ export function getAllTransactions(): Array<{
 
 function getRecipientPublicKey(item: AgentCatalogItem): string {
   const envByRole: Record<PlannerAgentRole, string | undefined> = {
-    PriceFeed: process.env.AGENT_PRICE_PUBLIC_KEY,
-    NewsDigest: process.env.AGENT_NEWS_PUBLIC_KEY,
-    Summarizer: process.env.AGENT_SUMMARIZER_PUBLIC_KEY,
-    SentimentAI: process.env.AGENT_SENTIMENT_PUBLIC_KEY,
-    MathSolver: process.env.AGENT_MATH_PUBLIC_KEY,
-    DeepResearch: process.env.AGENT_RESEARCH_PUBLIC_KEY
+    PriceFeed: env.AGENT_PRICE_PUBLIC_KEY,
+    NewsDigest: env.AGENT_NEWS_PUBLIC_KEY,
+    Summarizer: env.AGENT_SUMMARIZER_PUBLIC_KEY,
+    SentimentAI: env.AGENT_SENTIMENT_PUBLIC_KEY,
+    MathSolver: env.AGENT_MATH_PUBLIC_KEY,
+    DeepResearch: env.AGENT_RESEARCH_PUBLIC_KEY
   };
 
   return envByRole[item.plannerRole] || 'UNCONFIGURED';

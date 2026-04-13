@@ -43,6 +43,9 @@ pnpm-debug.log*
 target/
 **/target/
 
+# Stellar CLI binary releases (download on demand)
+stellar-cli-*.tar.gz
+
 # Local generated files
 *.pid
 *.seed

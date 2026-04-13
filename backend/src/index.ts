@@ -3,10 +3,11 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'node:http';
 import { z } from 'zod';
-import { demoNoX402Enabled, env } from './infra/config.js';
+import { demoNoX402Enabled, demoRealTxEnabled, env } from './infra/config.js';
 import agentsRouter from './agents/index.js';
 import { logError, logInfo, logWarn } from './infra/logger.js';
 import { startQuerySession } from './core/manager.js';
+import { getActiveLlmProvider } from './infra/llm.js';
 import {
   getProtocolTrace,
   getSessionMetrics,
@@ -17,7 +18,7 @@ import {
 } from './infra/store.js';
 import { ApiErrorPayload } from './infra/types.js';
 import { sseHub } from './infra/sse.js';
-import { getAgentCatalog, getAgentById, refreshRegistryFromChain, startRegistryPoller } from './registry/contract.js';
+import { getAgentCatalog, getAgentById, isDemoCatalogActive, refreshRegistryFromChain, startRegistryPoller } from './registry/contract.js';
 import { getRegistryCompetitionSnapshot } from './registry/competition.js';
 import { createSponsoredWallet, getManagerWalletBalance } from './payments/wallet.js';
 import { prepareXlmPayment, submitSignedTransaction } from './payments/xlm.js';
@@ -93,12 +94,23 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (_, res) => {
-  res.json(ok({ status: 'ok', service: 'synergi-stellar-backend' }));
+  res.json(ok({ status: 'ok', service: 'stellar-net-backend' }));
 });
 
 app.use('/agents', agentsRouter);
 
 app.get('/agents/catalog', (_, res) => {
+  const catalog = getAgentCatalog();
+  res.json(
+    ok({
+      items: catalog,
+      count: catalog.length,
+      generatedAt: new Date().toISOString()
+    })
+  );
+});
+
+app.get('/api/agents/catalog', (_, res) => {
   const catalog = getAgentCatalog();
   res.json(
     ok({
@@ -282,14 +294,18 @@ app.get('/api/registry/competition', async (req, res) => {
 });
 
 const chainConfigHandler = (_: express.Request, res: express.Response) => {
+  const x402Mode = demoRealTxEnabled ? 'demo-real-tx' : demoNoX402Enabled ? 'demo' : 'real';
+  const registrySource = isDemoCatalogActive() ? 'demo' : 'soroban';
   res.json(
     ok({
       network: env.STELLAR_NETWORK,
       contractId: env.CONTRACT_ID,
-      x402Mode: (demoNoX402Enabled ? 'demo' : 'real') as 'demo' | 'real',
+      x402Mode,
       x402Enforced: !demoNoX402Enabled,
-      workerPaywallSkipped: demoNoX402Enabled,
-      contractConfigured: Boolean(env.CONTRACT_ID?.trim())
+      workerPaywallSkipped: demoNoX402Enabled && !demoRealTxEnabled,
+      demoRealTxEnabled,
+      contractConfigured: Boolean(env.CONTRACT_ID?.trim()) && registrySource === 'soroban',
+      registrySource
     })
   );
 };
@@ -374,15 +390,17 @@ function startServer(startPort: number, attemptsLeft = 5): void {
   const server = app.listen(startPort, env.HOST, () => {
     process.env.RUNTIME_BACKEND_BASE_URL = `http://localhost:${startPort}`;
     activeServer = server;
-    logInfo('SynergiStellar backend started', {
+    logInfo('Stellar Net backend started', {
       port: startPort,
       host: env.HOST,
       env: env.NODE_ENV,
-      x402Mode: demoNoX402Enabled ? 'demo' : 'real',
+      llm: getActiveLlmProvider(),
+      x402Mode: demoRealTxEnabled ? 'demo-real-tx' : demoNoX402Enabled ? 'demo' : 'real',
       x402Enforced: !demoNoX402Enabled,
       network: env.STELLAR_NETWORK,
       baseUrl: process.env.RUNTIME_BACKEND_BASE_URL
     });
+    console.log(`[LLM] Active provider: ${getActiveLlmProvider()}`);
     logInfo('Backend endpoints ready', {
       health: '/health',
       query: '/api/query',
@@ -485,7 +503,7 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
 setupGracefulShutdown();
 
 function bootstrapRegistryThenListen(): void {
-  const strictRegistry = env.NODE_ENV === 'production';
+  const strictRegistry = false;
 
   void refreshRegistryFromChain()
     .then(() => {

@@ -6,7 +6,7 @@ const { Keypair } = require(require.resolve('@stellar/stellar-sdk', { paths: [pa
 const GENERATED_ENV_PATH = path.resolve(__dirname, '../backend/.env.generated');
 
 const walletSpecs = [
-  { name: 'MANAGER', publicKey: 'MANAGER_PUBLIC', secretKey: 'MANAGER_SECRET' },
+  { name: 'MANAGER', publicKey: 'MANAGER_PUBLIC_KEY', secretKey: 'MANAGER_SECRET_KEY' },
   { name: 'AGENT_PRICE', publicKey: 'AGENT_PRICE_PUBLIC_KEY', secretKey: 'AGENT_PRICE_SECRET' },
   { name: 'AGENT_NEWS', publicKey: 'AGENT_NEWS_PUBLIC_KEY', secretKey: 'AGENT_NEWS_SECRET' },
   { name: 'AGENT_SUMMARIZE', publicKey: 'AGENT_SUMMARIZE_PUBLIC_KEY', secretKey: 'AGENT_SUMMARIZE_SECRET' },
@@ -54,27 +54,27 @@ async function runFriendbotForAll(wallets) {
 
 function printFinalChecklist() {
   console.log(`
-=== SynergiStellar Setup Complete ===
+=== Stellar Net Setup Complete ===
 
 DONE:
 [x] Wallets generated
 [x] All wallets funded with testnet XLM via friendbot
 
-TODO:
+Next steps:
 [ ] Copy backend/.env.generated values into backend/.env
-[ ] Add your ANTHROPIC_API_KEY to backend/.env
+[ ] Add your ANTHROPIC_API_KEY and/or GROQ_API_KEY to backend/.env
 [ ] (Optional) Get testnet USDC at: https://testanchor.stellar.org/sep24/...
     or use: https://laboratory.stellar.org/#account-creator?network=test
 [ ] (Optional) Deploy Soroban contract:
     cd contracts/agent-registry
     cargo build --target wasm32-unknown-unknown --release
     stellar contract deploy --wasm target/wasm32-unknown-unknown/release/agent_registry.wasm \
-      --source MANAGER_SECRET --network testnet
+      --source MANAGER_SECRET_KEY --network testnet
 [ ] Run: npm run dev
 [ ] Open: http://localhost:3000
 
 Stellar Explorer (Manager):
-https://stellar.expert/explorer/testnet/account/MANAGER_PUBLIC_KEY
+https://stellar.expert/explorer/testnet/account/<MANAGER_PUBLIC_KEY>
 `);
 }
 
@@ -96,8 +96,22 @@ async function runGenerateAndFund() {
     const secretKey = keypair.secret();
     lines.push(`${spec.publicKey}=${publicKey}`);
     lines.push(`${spec.secretKey}=${secretKey}`);
+    if (spec.name === 'MANAGER') {
+      // Backward-compatible aliases still referenced in older docs/scripts.
+      lines.push(`MANAGER_PUBLIC=${publicKey}`);
+      lines.push(`MANAGER_SECRET=${secretKey}`);
+    }
+    if (spec.name === 'AGENT_SUMMARIZE') {
+      // Backward-compatible alias used by some runtime paths.
+      lines.push(`AGENT_SUMMARIZER_PUBLIC_KEY=${publicKey}`);
+    }
     wallets.push({ name: spec.name, publicKey });
   }
+
+  lines.push('');
+  lines.push('STELLAR_NETWORK=testnet');
+  lines.push('FACILITATOR_URL=https://x402-stellar-491bf9f7e30b.herokuapp.com');
+  lines.push('CONTRACT_ID=');
 
   fs.writeFileSync(GENERATED_ENV_PATH, `${lines.join('\n')}\n`, 'utf8');
   console.log(`Generated ${GENERATED_ENV_PATH}`);
@@ -113,10 +127,15 @@ async function runFundOnly() {
 
   const content = fs.readFileSync(GENERATED_ENV_PATH, 'utf8');
   const envVars = parseEnvFile(content);
+  const seen = new Set();
   const wallets = Object.entries(envVars)
-    .filter(([key, value]) => key.includes('PUBLIC') && Boolean(value))
+    .filter(([key, value]) => (key.endsWith('_PUBLIC_KEY') || key === 'MANAGER_PUBLIC') && Boolean(value))
     .map(([key, value]) => ({ name: key, publicKey: value }))
-    .filter((item) => Boolean(item.publicKey));
+    .filter((item) => {
+      if (!item.publicKey || seen.has(item.publicKey)) return false;
+      seen.add(item.publicKey);
+      return true;
+    });
 
   if (wallets.length === 0) {
     throw new Error(`No *_PUBLIC_KEY entries found in ${GENERATED_ENV_PATH}.`);

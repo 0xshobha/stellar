@@ -1,6 +1,6 @@
 import type { AgentCatalogItem } from '../infra/types.js';
 
-/** In-memory agents for local / hackathon demos when Soroban sync is unavailable. Production never uses this. */
+/** Optional in-memory catalog used only when explicitly enabled by configuration. */
 export const DEMO_AGENT_CATALOG: AgentCatalogItem[] = [
   {
     id: 'prc_demo',

@@ -59,7 +59,7 @@ export default function Footer() {
 				<div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
 					<section aria-labelledby="footer-brand" className="space-y-3">
 						<h2 id="footer-brand" className="text-base font-semibold tracking-wide text-slate-900">
-							SynergiStellar
+							Stellar Net
 						</h2>
 						<p className="max-w-xs text-sm leading-6 text-slate-600">
 							x402 agent economy on Stellar, designed for transparent autonomous execution and payment-aware collaboration.
@@ -115,7 +115,7 @@ export default function Footer() {
 				</div>
 
 				<div className="mt-6 flex flex-col gap-2 border-t border-slate-200 pt-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-					<p>Copyright {year} SynergiStellar</p>
+					<p>Copyright {year} Stellar Net</p>
 					<p>Built for autonomous agent transactions</p>
 				</div>
 			</div>

@@ -15,7 +15,8 @@ interface HnHit {
 
 router.post('/', agentPaywallMiddleware('news'), async (req, res) => {
   const topic = String(req.body?.input ?? 'technology').slice(0, 200);
-  const depth = Number(req.body?.depth ?? 0);
+  const parsedDepth = Number(req.body?.depth);
+  const depth = Number.isFinite(parsedDepth) ? parsedDepth : 0;
   const regId = String(req.header('x-registry-agent') ?? '').trim();
   const meta =
     (regId ? getAgentById(regId) : null) ?? pickBestAgentForCapability('news', Number.MAX_VALUE);

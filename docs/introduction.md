@@ -1,8 +1,8 @@
 # Introduction
 
-## What is SynergiStellar
+## What is Stellar Net
 
-SynergiStellar is a **recursive agent-to-agent economy** on Stellar. Software agents do not only answer users: they **discover** other agents, **hire** them for subtasks, and **pay** them in USDC using the **x402** payment flow over HTTP.
+Stellar Net is a **recursive agent-to-agent economy** on Stellar. Software agents do not only answer users: they **discover** other agents, **hire** them for subtasks, and **pay** them in USDC using the **x402** payment flow over HTTP.
 
 - **Manager** — turns a user query into a sequence of roles to invoke, then picks concrete workers from a competitive catalog.
 - **Workers** — HTTP services (price, news, sentiment, math, summarize, research) gated by real x402 settlement.
@@ -24,7 +24,7 @@ An **agent economy** makes decomposition **explicit and economic**:
 
 ## What makes this different
 
-| Typical stack | SynergiStellar |
+| Typical stack | Stellar Net |
 |---------------|----------------|
 | One API key, one invoice | **Per-hop x402** settlement; each hire is a priced call |
 | Static tool list | **Soroban-backed catalog**; multiple IDs per capability (`prc_bas` vs `prc_pro`) |

@@ -34,7 +34,8 @@ function lexiconScore(text: string): { score: number; label: string; method: str
 
 router.post('/', agentPaywallMiddleware('sentiment'), async (req, res) => {
   const input = String(req.body?.input ?? '').slice(0, 8000);
-  const depth = Number(req.body?.depth ?? 0);
+  const parsedDepth = Number(req.body?.depth);
+  const depth = Number.isFinite(parsedDepth) ? parsedDepth : 0;
   const regId = String(req.header('x-registry-agent') ?? '').trim();
   const meta =
     (regId ? getAgentById(regId) : null) ?? pickBestAgentForCapability('sentiment', Number.MAX_VALUE);

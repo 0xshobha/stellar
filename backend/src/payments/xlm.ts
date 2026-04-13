@@ -29,13 +29,14 @@ export async function prepareXlmPayment(params: {
   from: string;
   amount: number;
   memo?: string;
+  destination?: string;
 }): Promise<{ xdr: string; networkPassphrase: string; destination: string; amount: number }> {
   const server = horizonServer();
-  const destination = await getManagerPublicKey();
+  const destination = params.destination ?? (await getManagerPublicKey());
 
   const account = await server.loadAccount(params.from);
   const fee = String(await server.fetchBaseFee());
-  const memoText = (params.memo ?? 'SynergiStellar').slice(0, 28);
+  const memoText = (params.memo ?? 'Stellar Net').slice(0, 28);
 
   const tx = new TransactionBuilder(account, {
     fee,

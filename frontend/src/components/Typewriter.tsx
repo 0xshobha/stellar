@@ -22,10 +22,15 @@ export default function Typewriter({
   className,
   showCaret = true
 }: TypewriterProps) {
-  const [visibleCount, setVisibleCount] = useState(() => (typeof window === 'undefined' ? text.length : 0));
+  const [mounted, setMounted] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(0);
 
   useEffect(() => {
-    if (prefersReducedMotion()) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || prefersReducedMotion()) {
       setVisibleCount(text.length);
       return;
     }
@@ -54,7 +59,7 @@ export default function Typewriter({
       if (timeoutId) window.clearTimeout(timeoutId);
       if (intervalId) window.clearInterval(intervalId);
     };
-  }, [startDelayMs, stepMs, text]);
+  }, [mounted, startDelayMs, stepMs, text]);
 
   const shown = useMemo(() => text.slice(0, visibleCount), [text, visibleCount]);
 

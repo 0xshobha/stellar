@@ -202,7 +202,7 @@ async function handleTool(name: string, args: Record<string, unknown>): Promise<
 
 const server = new Server(
   {
-    name: 'synergi-stellar',
+    name: 'stellar-net',
     version: '1.0.0'
   },
   {

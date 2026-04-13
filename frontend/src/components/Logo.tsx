@@ -7,7 +7,7 @@ interface LogoProps {
 export default function Logo({ className }: LogoProps) {
   return (
     <Image
-      alt="SynergiStellar logo"
+      alt="Stellar Net logo"
       className={className ?? 'h-8 w-8'}
       height={32}
       priority

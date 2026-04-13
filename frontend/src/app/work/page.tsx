@@ -5,7 +5,7 @@ export default function WorkPage() {
     <main className="mx-auto max-w-7xl pb-10">
       <header className="playful-border subtle-grid mb-6 rounded-2xl border border-sky-100 bg-white/80 p-6 shadow-sm">
         <h1 className="text-2xl font-bold text-slate-900">Work</h1>
-        <p className="mt-1 text-sm text-slate-700">A simple walkthrough of how StellarSynergi works end-to-end.</p>
+        <p className="mt-1 text-sm text-slate-700">A simple walkthrough of how StellarNet works end-to-end.</p>
       </header>
 
       <section className="panel">

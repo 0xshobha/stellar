@@ -15,7 +15,7 @@ export default function HomePage() {
         </div>
 
         <h1 className="mt-5 text-center text-3xl font-bold tracking-tight text-slate-900 sm:text-6xl">
-          <Typewriter className="text-slate-900" text="Welcome to StellarSynergi" />
+          <Typewriter className="text-slate-900" text="Welcome to StellarNet" />
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-center text-sm text-slate-700 sm:text-base">
           A live dashboard for an autonomous agent economy: hiring, negotiation, and payments — visualized in real-time.

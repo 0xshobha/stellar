@@ -1,13 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
-import { Keypair } from '@stellar/stellar-sdk';
+import { Keypair, Transaction } from '@stellar/stellar-sdk';
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http';
 import { HTTPFacilitatorClient, x402ResourceServer } from '@x402/core/server';
 import { ExactStellarScheme as ExactStellarServerScheme } from '@x402/stellar/exact/server';
-import { demoNoX402Enabled, env, getStellarCaip2Network } from '../infra/config.js';
+import { demoNoX402Enabled, demoRealTxEnabled, env, getStellarCaip2Network } from '../infra/config.js';
 import { getAgentById, pickBestAgentForCapability } from '../registry/contract.js';
 import type { PlannerAgentRole } from '../infra/types.js';
 import { logError, logInfo } from '../infra/logger.js';
 import { recordX402Settlement } from '../infra/store.js';
+import { prepareXlmPayment, submitSignedTransaction } from './xlm.js';
 
 const facilitatorClient = new HTTPFacilitatorClient({ url: env.FACILITATOR_URL });
 const resourceServer = new x402ResourceServer(facilitatorClient).register('stellar:*', new ExactStellarServerScheme());
@@ -275,10 +276,123 @@ function resolveAgentRecipient(agentRegistryId: string): string | null {
   return null;
 }
 
-/** Production: always x402. Development: skips paywall unless `SYNS_DEMO_NO_X402=0`. */
+/** Selects paywall mode based on environment flags. */
 export function agentPaywallMiddleware(endpoint: string) {
+  if (demoRealTxEnabled) {
+    return createDemoRealTxPaywallForEndpoint(endpoint);
+  }
   if (demoNoX402Enabled) {
     return (_req: Request, _res: Response, next: NextFunction) => next();
   }
   return createPaywallForEndpoint(endpoint);
+}
+
+function createDemoRealTxPaywallForEndpoint(endpoint: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const capability = ENDPOINT_CAPABILITY[endpoint];
+    if (!capability) {
+      res.status(500).json({
+        ok: false,
+        error: { code: 'BAD_ENDPOINT', message: `Unknown agent endpoint: ${endpoint}` }
+      });
+      return;
+    }
+
+    let registryId = req.header('x-registry-agent')?.trim();
+    if (!registryId) {
+      const picked = pickBestAgentForCapability(capability, Number.MAX_VALUE);
+      if (!picked) {
+        res.status(503).json({
+          ok: false,
+          error: { code: 'NO_AGENT', message: `No registered worker for capability ${capability}` }
+        });
+        return;
+      }
+      registryId = picked.id;
+    }
+
+    const agent = getAgentById(registryId);
+    if (!agent || agent.endpoint !== endpoint) {
+      res.status(400).json({
+        ok: false,
+        error: {
+          code: 'BAD_REGISTRY_AGENT',
+          message: 'x-registry-agent does not match this HTTP route'
+        }
+      });
+      return;
+    }
+
+    const recipient = resolveAgentRecipient(agent.id);
+    if (!recipient) {
+      res.status(500).json({
+        ok: false,
+        error: {
+          code: 'X402_AGENT_RECIPIENT_MISSING',
+          message: `Missing valid Stellar recipient address for ${agent.id}`
+        }
+      });
+      return;
+    }
+
+    try {
+      if (!env.MANAGER_SECRET_KEY) {
+        throw new Error('MANAGER_SECRET_KEY is required for demo real tx mode.');
+      }
+      const managerKeypair = Keypair.fromSecret(env.MANAGER_SECRET_KEY);
+      const prepared = await prepareXlmPayment({
+        from: managerKeypair.publicKey(),
+        destination: recipient,
+        amount: agent.price,
+        memo: `x402:${agent.id}`.slice(0, 28)
+      });
+      const tx = new Transaction(prepared.xdr, prepared.networkPassphrase);
+      tx.sign(managerKeypair);
+      const submitted = await submitSignedTransaction({
+        signedXdr: tx.toXDR(),
+        noteFrom: 'ManagerAgent'
+      });
+
+      recordX402Settlement({
+        agent: agent.id,
+        amount: agent.price,
+        txHash: submitted.txHash
+      });
+
+      // Keep header shape compatible with buildAgentResponse tx extraction.
+      res.setHeader(
+        'PAYMENT-RESPONSE',
+        encodePaymentResponseHeader({
+          success: true,
+          network: getStellarCaip2Network(),
+          transaction: submitted.txHash
+        })
+      );
+      res.setHeader('x-payment-enforced', 'true');
+      res.setHeader('x-payment-network', getStellarCaip2Network());
+      res.setHeader('x-payment-recipient', recipient);
+
+      logInfo('Demo real tx payment settled', {
+        agent: agent.id,
+        endpoint,
+        amount: agent.price,
+        txHash: submitted.txHash
+      });
+      next();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logError('Demo real tx payment failed', {
+        endpoint,
+        agent: agent.id,
+        message
+      });
+      res.status(502).json({
+        ok: false,
+        error: {
+          code: 'DEMO_REAL_TX_FAILED',
+          message
+        }
+      });
+    }
+  };
 }

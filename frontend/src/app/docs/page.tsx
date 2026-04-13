@@ -3,8 +3,8 @@ import Link from "next/link";
 import { listDocs, type DocMeta } from "../../lib/docs";
 
 export const metadata = {
-  title: "Docs | SynergiStellar",
-  description: "SynergiStellar: agent economies, x402 payments on Stellar, and Soroban registry.",
+  title: "Docs | Stellar Net",
+  description: "Stellar Net: agent economies, x402 payments on Stellar, and Soroban registry.",
 };
 
 const SECTIONS: { title: string; description: string; match: (slug: string) => boolean }[] = [
@@ -61,7 +61,7 @@ export default async function DocsIndexPage() {
       <section className="panel p-6 md:p-8">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">Documentation</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-          SynergiStellar documents a <strong>new runtime shape</strong>: autonomous agents discovering, hiring, and paying
+          Stellar Net documents a <strong>new runtime shape</strong>: autonomous agents discovering, hiring, and paying
           each other with <strong>x402</strong> on Stellar. Read in order for the shortest path from idea to working demo.
         </p>
 

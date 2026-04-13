@@ -20,7 +20,9 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
   MANAGER_SECRET_KEY: z.string().optional(),
+  MANAGER_SECRET: z.string().optional(),
   MANAGER_PUBLIC_KEY: z.string().optional(),
+  MANAGER_PUBLIC: z.string().optional(),
   STELLAR_NETWORK: z.enum(['testnet', 'mainnet']).default('testnet'),
   FACILITATOR_URL: z.string().url().default('https://x402-stellar-491bf9f7e30b.herokuapp.com'),
   X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(300),
@@ -33,11 +35,14 @@ const envSchema = z.object({
   AGENT_MATH_PUBLIC_KEY: z.string().optional(),
   AGENT_RESEARCH_PUBLIC_KEY: z.string().optional(),
   CONTRACT_ID: z.preprocess((v) => (typeof v === 'string' ? v.trim() : ''), z.string()),
+  SOROBAN_CONTRACT_ID: z.string().optional(),
   SOROBAN_RPC_URL: z.string().url().optional(),
   /** Set to `0` to disable in-memory demo agents in development when Soroban fails. */
   SYNS_DEMO_CATALOG: z.enum(['0', '1']).optional(),
   /** Set to `0` to require real x402 paywall on worker routes in development (default: paywall off in dev). */
-  SYNS_DEMO_NO_X402: z.enum(['0', '1']).optional()
+  SYNS_DEMO_NO_X402: z.enum(['0', '1']).optional(),
+  /** Set to `1` to create real Stellar tx hashes in demo mode without facilitator settlement. */
+  SYNS_DEMO_REAL_TX: z.enum(['0', '1']).optional()
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;
@@ -47,13 +52,17 @@ type RuntimeEnv = Omit<ParsedEnv, 'AGENT_SUMMARIZER_PUBLIC_KEY' | 'MANAGER_PUBLI
 };
 
 const parsedEnv = envSchema.parse(process.env);
+const effectiveContractId =
+  parsedEnv.CONTRACT_ID?.trim() || parsedEnv.SOROBAN_CONTRACT_ID?.trim() || '';
+const effectiveManagerSecretKey = parsedEnv.MANAGER_SECRET_KEY?.trim() || parsedEnv.MANAGER_SECRET?.trim();
+const explicitManagerPublicKey = parsedEnv.MANAGER_PUBLIC_KEY?.trim() || parsedEnv.MANAGER_PUBLIC?.trim();
 
 function deriveManagerPublicKey(): string | undefined {
-  if (parsedEnv.MANAGER_PUBLIC_KEY) return parsedEnv.MANAGER_PUBLIC_KEY;
-  if (!parsedEnv.MANAGER_SECRET_KEY) return undefined;
+  if (explicitManagerPublicKey) return explicitManagerPublicKey;
+  if (!effectiveManagerSecretKey) return undefined;
 
   try {
-    return Keypair.fromSecret(parsedEnv.MANAGER_SECRET_KEY).publicKey();
+    return Keypair.fromSecret(effectiveManagerSecretKey).publicKey();
   } catch {
     return undefined;
   }
@@ -61,6 +70,8 @@ function deriveManagerPublicKey(): string | undefined {
 
 export const env: RuntimeEnv = {
   ...parsedEnv,
+  CONTRACT_ID: effectiveContractId,
+  MANAGER_SECRET_KEY: effectiveManagerSecretKey,
   MANAGER_PUBLIC_KEY: deriveManagerPublicKey(),
   AGENT_SUMMARIZER_PUBLIC_KEY: parsedEnv.AGENT_SUMMARIZER_PUBLIC_KEY ?? parsedEnv.AGENT_SUMMARIZE_PUBLIC_KEY
 };
@@ -78,12 +89,12 @@ const configuredAgentPublicKeys = {
 
 const startupErrors: string[] = [];
 
-const contractId = env.CONTRACT_ID?.trim() ?? '';
+const contractId = effectiveContractId;
 if (!contractId) {
   startupErrors.push(
-    'CONTRACT_ID is required. Deploy the Soroban agent-registry contract and paste the id into backend/.env.'
+    'CONTRACT_ID is required. Legacy fallback SOROBAN_CONTRACT_ID is also supported, but CONTRACT_ID is preferred.'
   );
-} else if (!/^C[A-Z0-9]{55}$/.test(contractId)) {
+} else if (!/^C[A-Z2-7]{55}$/.test(contractId)) {
   startupErrors.push(
     'CONTRACT_ID must be a valid Soroban contract id (56 characters, starts with C, base32).'
   );
@@ -107,16 +118,20 @@ if (startupErrors.length > 0) {
   throw new Error(`Environment configuration invalid:\n- ${startupErrors.join('\n- ')}`);
 }
 
-/** When true, failed Soroban `list_agents` loads `DEMO_AGENT_CATALOG` instead of exiting (development only). */
+/** When true, failed Soroban `list_agents` loads `DEMO_AGENT_CATALOG` instead of exiting. */
 export const demoCatalogFallbackEnabled =
-  env.NODE_ENV !== 'production' && env.SYNS_DEMO_CATALOG !== '0';
+  env.SYNS_DEMO_CATALOG === '1' || (env.SYNS_DEMO_CATALOG !== '0' && env.NODE_ENV !== 'production');
 
-/** When true, worker `/agents/*` routes skip x402 middleware (development only; default on). */
+/** When true, worker `/agents/*` routes skip x402 middleware. */
 export const demoNoX402Enabled =
-  env.NODE_ENV !== 'production' && env.SYNS_DEMO_NO_X402 !== '0';
+  env.SYNS_DEMO_NO_X402 === '1' || (env.SYNS_DEMO_NO_X402 !== '0' && env.NODE_ENV !== 'production');
+
+/** When true, worker `/agents/*` routes submit direct Stellar payments (demo helper mode). */
+export const demoRealTxEnabled =
+  env.SYNS_DEMO_REAL_TX === '1';
 
 console.log(
-  `[Config] x402=${demoNoX402Enabled ? 'skipped (dev demo)' : 'enforced'} network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`
+  `[Config] x402=${demoNoX402Enabled ? 'skipped (dev demo)' : 'enforced'} demoRealTx=${demoRealTxEnabled} network=${env.STELLAR_NETWORK} claudeEnabled=${claudeEnabled}`
 );
 
 export function getStellarCaip2Network(): 'stellar:testnet' | 'stellar:pubnet' {

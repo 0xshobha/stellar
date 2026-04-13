@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'SynergiStellar',
+    name: 'Stellar Net',
     short_name: 'Synergi',
     description: 'Autonomous x402 agent economy dashboard on Stellar.',
     start_url: '/',

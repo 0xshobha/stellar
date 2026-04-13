@@ -24,6 +24,7 @@ type ChainConfig = {
   x402Enforced: boolean;
   workerPaywallSkipped?: boolean;
   contractConfigured: boolean;
+  registrySource?: 'soroban' | 'demo';
 };
 
 function formatUpdatedDate(value: string): string {
@@ -244,7 +245,7 @@ export default function DashboardPage() {
       <header className="playful-border subtle-grid mb-6 rounded-2xl border border-sky-100 bg-white/80 p-5 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">SynergiStellar Dashboard</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Stellar Net Dashboard</h1>
             <p className="text-sm text-slate-600">x402 autonomous agent economy on Stellar</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -280,13 +281,20 @@ export default function DashboardPage() {
         {chainConfig ? (
           <p className="mt-1 text-xs text-slate-600">
             Network: {chainConfig.network} · Contract:{' '}
-            {chainConfig.contractConfigured ? shortAddress(chainConfig.contractId) : 'not configured'} · x402:{' '}
+            {chainConfig.contractConfigured ? shortAddress(chainConfig.contractId) : 'unverified'} · registry:{' '}
+            {chainConfig.registrySource === 'soroban' ? 'live' : 'fallback'} · x402:{' '}
             {chainConfig.x402Mode}
+            {chainConfig.x402Mode === 'demo-real-tx' ? ' (direct Stellar testnet settlement mode)' : ''}
             {chainConfig.workerPaywallSkipped
-              ? ' (worker paywall off in dev)'
+              ? ' (worker paywall relaxed for local mode)'
               : chainConfig.x402Enforced
-                ? ' (workers enforce 402)'
+                ? ' (worker paywall enforced)'
                 : ''}
+          </p>
+        ) : null}
+        {chainConfig?.registrySource === 'demo' ? (
+          <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900">
+            Registry fallback is active. On-chain ranking proof is unavailable until Soroban registry sync succeeds.
           </p>
         ) : null}
         {walletError ? <p className="mt-1 text-xs text-rose-600">{walletError}</p> : null}

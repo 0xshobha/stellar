@@ -13,7 +13,7 @@ interface GraphNode extends d3.SimulationNodeDatum {
   type: 'user' | 'manager' | 'worker' | 'subagent';
   totalReceived: number;
   lastPaidAt: number;
-  pulse: boolean;
+  maxDepth: number;
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
@@ -24,19 +24,61 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   amount: number;
 }
 
+interface FlowPacket {
+  id: string;
+  linkId: string;
+  kind: 'primary' | 'recursive';
+}
+
 export default function TopologyGraph({ events }: TopologyGraphProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const seenEventsRef = useRef(0);
   const [pulseNow, setPulseNow] = useState(() => Date.now());
+  const [packets, setPackets] = useState<FlowPacket[]>([]);
 
   useEffect(() => {
     const interval = setInterval(() => setPulseNow(Date.now()), 250);
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const normalizeNode = (name: string): string => (name === 'ManagerAgent' ? 'Manager' : name);
+    const nextPackets: FlowPacket[] = [];
+
+    for (let i = seenEventsRef.current; i < events.length; i += 1) {
+      const event = events[i];
+      const isPrimaryPaid = event.type === 'paid';
+      const isRecursivePaid = event.type === 'recursive-paid';
+      if (!isPrimaryPaid && !isRecursivePaid) continue;
+      const agent = typeof event.agent === 'string' ? event.agent : null;
+      if (!agent) continue;
+      const sourceRaw =
+        isRecursivePaid && typeof event.parentAgent === 'string'
+          ? event.parentAgent
+          : typeof event.source === 'string'
+            ? event.source
+            : 'Manager';
+      nextPackets.push({
+        id: `${event.type}-${agent}-${Date.now()}-${i}`,
+        linkId: `${isRecursivePaid ? 'recursive' : 'primary'}-${normalizeNode(sourceRaw)}-${normalizeNode(agent)}-${i}`,
+        kind: isRecursivePaid ? 'recursive' : 'primary'
+      });
+    }
+
+    seenEventsRef.current = events.length;
+    if (nextPackets.length === 0) return;
+
+    setPackets((prev) => [...prev, ...nextPackets]);
+    const timer = setTimeout(() => {
+      setPackets((prev) => prev.filter((packet) => !nextPackets.some((p) => p.id === packet.id)));
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [events]);
+
   const graph = useMemo(() => {
     const nodes = new Map<string, GraphNode>([
-      ['User', { id: 'User', type: 'user', totalReceived: 0, lastPaidAt: 0, pulse: false }],
-      ['Manager', { id: 'Manager', type: 'manager', totalReceived: 0, lastPaidAt: 0, pulse: false }]
+      ['User', { id: 'User', type: 'user', totalReceived: 0, lastPaidAt: 0, maxDepth: 0 }],
+      ['Manager', { id: 'Manager', type: 'manager', totalReceived: 0, lastPaidAt: 0, maxDepth: 0 }]
     ]);
 
     const links: GraphLink[] = [{ id: 'user-manager', source: 'User', target: 'Manager', kind: 'primary', amount: 0 }];
@@ -48,7 +90,7 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
 
     const ensureNode = (id: string, type: GraphNode['type']) => {
       if (!nodes.has(id)) {
-        nodes.set(id, { id, type, totalReceived: 0, lastPaidAt: 0, pulse: false });
+        nodes.set(id, { id, type, totalReceived: 0, lastPaidAt: 0, maxDepth: 0 });
         return;
       }
 
@@ -71,6 +113,7 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
 
       const eventAt = typeof event.at === 'string' && Number.isFinite(Date.parse(event.at)) ? Date.parse(event.at) : pulseNow + index;
       const amount = Number(event.amount ?? event.pricePaid ?? event.price ?? 0);
+      const depth = Number(event.depth);
 
       if (isRecursivePaid) {
         ensureNode(agent, 'subagent');
@@ -99,6 +142,12 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
         if (targetNode) {
           targetNode.totalReceived = Number((targetNode.totalReceived + amount).toFixed(6));
           targetNode.lastPaidAt = eventAt;
+          targetNode.maxDepth = Math.max(targetNode.maxDepth, Number.isFinite(depth) ? depth : 0);
+        }
+
+        const sourceNode = nodes.get(source);
+        if (sourceNode) {
+          sourceNode.maxDepth = Math.max(sourceNode.maxDepth, Number.isFinite(depth) ? depth : 0);
         }
 
         links.push({
@@ -111,15 +160,35 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
       }
     });
 
-    nodes.forEach((node) => {
-      node.pulse = pulseNow - node.lastPaidAt <= 2000;
-    });
-
     return {
       nodes: Array.from(nodes.values()),
       links
     };
   }, [events, pulseNow]);
+
+  const stats = useMemo(() => {
+    let totalPaid = 0;
+    let recursiveCalls = 0;
+    let maxDepth = 0;
+    const active = new Set<string>();
+
+    events.forEach((event) => {
+      if (event.type !== 'paid' && event.type !== 'recursive-paid') return;
+      const amount = Number(event.amount ?? event.pricePaid ?? event.price ?? 0);
+      if (Number.isFinite(amount)) totalPaid += amount;
+      if (event.type === 'recursive-paid') recursiveCalls += 1;
+      if (typeof event.agent === 'string') active.add(event.agent);
+      const depth = Number(event.depth);
+      if (Number.isFinite(depth)) maxDepth = Math.max(maxDepth, depth);
+    });
+
+    return {
+      totalPaid: Number(totalPaid.toFixed(3)),
+      activeAgents: active.size,
+      recursiveCalls,
+      maxDepth
+    };
+  }, [events]);
 
   useEffect(() => {
     if (!svgRef.current) return;
@@ -201,16 +270,44 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
       }).strength(0.2))
       .force('collide', d3.forceCollide(26));
 
+    const positiveAmounts = graph.links.map((item) => item.amount).filter((amount) => amount > 0);
+    const minAmount = positiveAmounts.length > 0 ? Math.min(...positiveAmounts) : 0.001;
+    const maxAmount = positiveAmounts.length > 0 ? Math.max(...positiveAmounts) : minAmount;
+    const strokeScale = d3.scaleLog().domain([minAmount, maxAmount === minAmount ? minAmount * 1.01 : maxAmount]).range([1.5, 5]);
+
     const link = svg
       .append('g')
-      .selectAll('line')
+      .selectAll('path')
       .data(graph.links)
       .enter()
-      .append('line')
+      .append('path')
       .attr('stroke', (d) => (d.kind === 'recursive' ? '#f59e0b' : '#16a34a'))
-      .attr('stroke-width', 2.2)
+      .attr('stroke-width', (d) => {
+        if (d.amount <= 0) return 1.5;
+        return Number(strokeScale(d.amount).toFixed(2));
+      })
+      .attr('fill', 'none')
       .attr('stroke-dasharray', (d) => (d.kind === 'recursive' ? '6,4' : '0'))
       .attr('marker-end', (d) => (d.kind === 'recursive' ? 'url(#arrow-recursive)' : 'url(#arrow-primary)'));
+
+    link.attr('id', (d) => `link-${d.id}`);
+
+    svg
+      .append('g')
+      .attr('class', 'packet-layer')
+      .selectAll('circle')
+      .data(packets)
+      .enter()
+      .append('circle')
+      .attr('r', 5)
+      .attr('fill', (d) => (d.kind === 'recursive' ? '#f59e0b' : '#10b981'))
+      .attr('opacity', 0.95)
+      .append('animateMotion')
+      .attr('dur', '600ms')
+      .attr('repeatCount', '1')
+      .attr('fill', 'freeze')
+      .append('mpath')
+      .attr('href', (d) => `#link-${d.linkId}`);
 
     const edgeLabels = svg
       .append('g')
@@ -250,28 +347,38 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
       );
 
     node
+      .append('g')
+      .attr('class', 'node-rings')
+      .selectAll('circle')
+      .data([0, 1, 2])
+      .enter()
+      .append('circle')
+      .attr('class', (d) => `pulse-ring ring-${d + 1}`)
+      .attr('r', 16)
+      .attr('fill', 'none')
+      .attr('stroke', '#60a5fa')
+      .attr('stroke-width', 2);
+
+    node
       .append('circle')
       .attr('r', (d) => (d.type === 'manager' ? 20 : 16))
       .attr('fill', (d) => {
         if (d.type === 'user') return '#94a3b8';
-        if (d.pulse) return '#2563eb';
+        if (pulseNow - d.lastPaidAt <= 3000) return '#2563eb';
         return '#64748b';
       })
       .attr('stroke', '#cbd5e1')
       .attr('stroke-width', 1.2);
 
     node
-      .filter((d) => d.pulse)
       .append('circle')
-      .attr('r', 16)
+      .attr('class', 'subagent-ring')
+      .attr('r', 20)
       .attr('fill', 'none')
-      .attr('stroke', '#3b82f6')
-      .attr('stroke-width', 2)
-      .attr('opacity', 0.75)
-      .transition()
-      .duration(900)
-      .attr('r', 26)
-      .attr('opacity', 0.1);
+      .attr('stroke', '#f59e0b')
+      .attr('stroke-width', 1.8)
+      .attr('stroke-dasharray', '4,2')
+      .style('display', (d) => (d.type === 'subagent' ? 'block' : 'none'));
 
     node
       .append('text')
@@ -289,6 +396,16 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
       .attr('fill', '#475569')
       .attr('font-size', 10)
       .text((d) => `${d.totalReceived.toFixed(3)} USDC`);
+
+    node
+      .append('text')
+      .attr('class', 'depth-pill')
+      .attr('text-anchor', 'middle')
+      .attr('dy', -24)
+      .attr('font-size', 9)
+      .attr('font-weight', 700)
+      .attr('fill', '#0f172a')
+      .text((d) => `d${d.maxDepth}`);
 
     const legend = svg.append('g').attr('transform', `translate(${width - 215}, 12)`);
     legend
@@ -323,28 +440,85 @@ export default function TopologyGraph({ events }: TopologyGraphProps) {
 
     simulation.on('tick', () => {
       link
-        .attr('x1', (d) => (d.source as GraphNode).x ?? 0)
-        .attr('y1', (d) => (d.source as GraphNode).y ?? 0)
-        .attr('x2', (d) => (d.target as GraphNode).x ?? 0)
-        .attr('y2', (d) => (d.target as GraphNode).y ?? 0);
+        .attr('d', (d) => {
+          const sx = (d.source as GraphNode).x ?? 0;
+          const sy = (d.source as GraphNode).y ?? 0;
+          const tx = (d.target as GraphNode).x ?? 0;
+          const ty = (d.target as GraphNode).y ?? 0;
+          return `M${sx},${sy} L${tx},${ty}`;
+        });
 
       edgeLabels
         .attr('x', (d) => (((d.source as GraphNode).x ?? 0) + ((d.target as GraphNode).x ?? 0)) / 2)
         .attr('y', (d) => ((((d.source as GraphNode).y ?? 0) + ((d.target as GraphNode).y ?? 0)) / 2) - 6);
 
       node.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+      node.classed('node-pulse', (d) => pulseNow - d.lastPaidAt <= 3000);
     });
 
     return () => {
       simulation.stop();
     };
-  }, [graph]);
+  }, [graph, packets, pulseNow, events.length]);
 
   return (
     <section className="panel">
       <h2 className="text-lg font-semibold text-slate-900">Topology</h2>
       <p className="mt-1 text-xs text-slate-500">Session payment topology with recursive sub-agent flows and per-node USDC totals.</p>
       <svg className="mt-3 w-full rounded-xl border border-slate-200 bg-white shadow-inner" ref={svgRef} viewBox="0 0 620 360" />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className="glass-chip">Total USDC paid: {stats.totalPaid.toFixed(3)}</span>
+        <span className="glass-chip">Active agents: {stats.activeAgents}</span>
+        <span className="glass-chip">
+          Recursive calls: {stats.recursiveCalls} | Max depth: d{stats.maxDepth}
+        </span>
+      </div>
+      <style jsx>{`
+        .glass-chip {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.45);
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(241, 245, 249, 0.78));
+          padding: 0.3rem 0.62rem;
+          font-size: 0.72rem;
+          font-weight: 600;
+          color: #334155;
+          backdrop-filter: blur(4px);
+        }
+
+        :global(.node-rings) {
+          display: none;
+        }
+        :global(.node-pulse .node-rings) {
+          display: block;
+        }
+        :global(.pulse-ring) {
+          opacity: 0;
+          transform-origin: center;
+          animation: nodePulse 1.2s ease-out infinite;
+        }
+        :global(.ring-1) {
+          animation-delay: 0ms;
+        }
+        :global(.ring-2) {
+          animation-delay: 300ms;
+        }
+        :global(.ring-3) {
+          animation-delay: 600ms;
+        }
+
+        @keyframes nodePulse {
+          0% {
+            r: 16;
+            opacity: 0.7;
+          }
+          100% {
+            r: 34;
+            opacity: 0;
+          }
+        }
+      `}</style>
     </section>
   );
 }

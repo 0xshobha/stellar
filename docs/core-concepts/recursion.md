@@ -4,7 +4,7 @@
 
 **Recursion** = an agent’s work **includes paid calls to other agents** using the **same x402 mechanism** as the manager.
 
-In SynergiStellar the canonical example is **DeepResearch** (`backend/src/agents/research.ts`):
+In Stellar Net the canonical example is **DeepResearch** (`backend/src/agents/research.ts`):
 
 - Chooses a set of **capabilities** (LLM or heuristics).
 - For each capability, picks a worker from the registry and calls  

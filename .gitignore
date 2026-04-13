@@ -1,6 +1,4 @@
 # Secrets and local environment files
-.env
-.env.*
 !.env.example
 !.env.local.example
 
@@ -43,6 +41,9 @@ pnpm-debug.log*
 target/
 **/target/
 
+# Stellar CLI binary releases (download on demand)
+stellar-cli-*.tar.gz
+
 # Local generated files
 *.pid
 *.seed
@@ -60,5 +61,8 @@ digest.txt
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/*
 !.vscode/extensions.json
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+config.bat

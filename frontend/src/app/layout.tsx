@@ -9,8 +9,8 @@ import { getPublicSiteUrl } from '../lib/siteUrl';
 export const metadata: Metadata = {
   metadataBase: new URL(getPublicSiteUrl()),
   title: {
-    default: 'SynergiStellar',
-    template: '%s | SynergiStellar'
+    default: 'Stellar Net',
+    template: '%s | Stellar Net'
   },
   description: 'Autonomous agent economy on Stellar with x402 micropayments, recursive hiring, live topology, and protocol traces.',
   keywords: [
@@ -20,26 +20,26 @@ export const metadata: Metadata = {
     'autonomous agents',
     'Soroban',
     'USDC',
-    'hackathon'
+    'micropayments'
   ],
   openGraph: {
     type: 'website',
     url: '/',
-    siteName: 'SynergiStellar',
-    title: 'SynergiStellar — x402 Autonomous Agent Economy',
+    siteName: 'Stellar Net',
+    title: 'Stellar Net — x402 Autonomous Agent Economy',
     description: 'Manager and worker agents execute paid tasks with x402 flow on Stellar.',
     images: [
       {
         url: '/opengraph-image',
         width: 1200,
         height: 630,
-        alt: 'SynergiStellar Open Graph Image'
+        alt: 'Stellar Net Open Graph Image'
       }
     ]
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'SynergiStellar — x402 Agent Economy',
+    title: 'Stellar Net — x402 Agent Economy',
     description: 'Recursive agent-to-agent payments and live protocol traces on Stellar.',
     images: ['/opengraph-image']
   },

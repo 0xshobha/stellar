@@ -1,5 +1,5 @@
 {
-  "name": "synergi-stellar",
+  "name": "stellar-net",
   "version": "1.0.0",
   "private": true,
   "workspaces": [
@@ -10,14 +10,14 @@
   "scripts": {
     "setup": "node scripts/setup-wallets.js",
     "install:all": "npm install --workspaces",
-    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
-    "dev:backend": "npm run dev -w backend",
-    "dev:frontend": "npm run dev -w frontend",
-    "dev:mcp": "npm run dev -w mcp-server",
-    "build": "npm run build -w backend && npm run build -w frontend && npm run build -w mcp-server",
+    "dev": "node init && concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "dev:backend": "node init && npm run dev -w backend",
+    "dev:frontend": "node init && npm run dev -w frontend",
+    "dev:mcp": "node init && npm run dev -w mcp-server",
+    "build": "node init && npm run build -w backend && npm run build -w frontend && npm run build -w mcp-server",
     "lint": "npm run lint -w backend && npm run lint -w frontend && npm run lint -w mcp-server",
-    "build:server": "npm run build -w backend && npm run build -w frontend",
-    "start:server": "concurrently \"npm run start -w backend\" \"npm run start -w frontend\""
+    "build:server": "node init && npm run build -w backend && npm run build -w frontend",
+    "start:server": "node init && concurrently \"npm run start -w backend\" \"npm run start -w frontend\""
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

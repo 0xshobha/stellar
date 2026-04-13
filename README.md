@@ -1,22 +1,18 @@
-# SynergiStellar
+# Stellar Net
 
-Autonomous agents that **hire, compete, and pay each other** on **Stellar**.
+Stellar Net is an autonomous agent runtime on Stellar.  
+It demonstrates on-chain agent discovery, score-based worker selection, and machine-to-machine payment settlement through x402.
 
-- USDC settlement via **x402** (HTTP 402, facilitator, on-chain tx)
-- Agents are **discovered and ranked** via a **Soroban on-chain registry** (`list_agents`, capabilities, `get_best_agent`, `record_job_result`)
-- Manager **decision engine** (reputation vs price) + optional **Claude** planner (roles only)
-- **Recursive** execution (e.g. research fans out paid sub-calls)
+## Overview
 
-## Demo
+The system combines four core capabilities:
 
-Add your **recording or live URL** here when ready.
+- On-chain registry reads and ranking through a Soroban contract
+- Real-time manager orchestration with recursive worker fan-out
+- x402 payment enforcement on worker endpoints
+- Live execution visibility through SSE, topology visualization, and transaction logs
 
-## Live flow
-
-1. Run the app (see below).
-2. Open the **Dashboard**, submit a query, e.g.  
-   `Analyze AI payment trends under $0.02`
-3. Watch **SSE**, **topology**, **transaction log** (Stellar Expert links on settled hashes).
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -48,43 +44,44 @@ flowchart LR
   W -.->|per-request paywall| X
 ```
 
-## Quick start
+## Quick Start
 
 ```bash
 npm run setup
 cp backend/.env.generated backend/.env
-# Set CONTRACT_ID + keys — see backend/.env.example
+# Set CONTRACT_ID and required keys (see backend/.env.example)
 npm install
 npm run dev
 ```
 
-- App: `http://localhost:3000`
-- API: `http://localhost:4000` (or `http://127.0.0.1:4000`)
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:4000`
 
-Copy `frontend/.env.local.example` → `frontend/.env.local` so the Next.js `/api/*` proxy targets the backend (defaults to `127.0.0.1:4000` in dev if unset).
+## Required Configuration
 
-**Local dev vs production:** In **`development`**, if Soroban bootstrap fails (bad `CONTRACT_ID`, RPC, or empty `list_agents`), the API still listens so you can verify `/health` and the dashboard proxy. In **`production`**, bootstrap failure exits the process.
+`backend/.env` must include:
 
-**Dashboard “Failed to fetch” on Run Manager:** Usually the **optional** Freighter XLM step (before `/api/query`) or the **Vercel → API** hop. On **localhost**, the XLM step is **skipped by default** (direct `/api/query`). Set `NEXT_PUBLIC_REQUIRE_MANAGER_XLM=1` to force Freighter signing. On **Vercel**, set **`NEXT_PUBLIC_BACKEND_URL`** to your deployed API origin (not `localhost`).
+- `CONTRACT_ID` for a deployed Soroban registry with registered agents
+- `MANAGER_SECRET_KEY`
+- all required `AGENT_*_PUBLIC_KEY` values
+- LLM credentials (`GROQ_API_KEY` and/or `ANTHROPIC_API_KEY`)
 
-**Hackathon / local demo:** In **`development`**, if Soroban `list_agents` fails, the API loads a small **demo agent catalog** so the manager can plan and call workers (set `SYNS_DEMO_CATALOG=0` in `backend/.env` to disable). **Production** still requires a successful chain sync.
+The backend requires a successful registry sync (`list_agents`) at startup.
 
-## Repo layout
+For frontend-to-backend proxying, copy `frontend/.env.local.example` to `frontend/.env.local` and configure `NEXT_PUBLIC_BACKEND_URL` when needed.
 
-| Path | Role |
-|------|------|
-| `backend/src/core/` | Manager, scoring |
-| `backend/src/payments/` | x402 client/middleware, wallet, XLM helpers, receipts |
-| `backend/src/registry/` | On-chain registry sync, Soroban RPC, competition snapshot |
-| `backend/src/infra/` | Config, store, logger, SSE, LLM helpers |
-| `backend/src/agents/` | Worker routes |
-| `frontend/` | Dashboard, docs, proxy |
-| `contracts/agent-registry/` | Rust Soroban contract |
-| `docs/` | Markdown (`/docs` in app) |
+## Repository Structure
 
-## Configuration
-
-Secrets only in **`backend/.env`**. **`CONTRACT_ID`** must be your **deployed** Soroban registry with registered agents for real manager runs. Production startup requires a successful `list_agents` sync; development keeps the server up with a warning if sync fails.
+| Path | Purpose |
+|------|---------|
+| `backend/src/core/` | Manager orchestration and scoring |
+| `backend/src/payments/` | x402 middleware/client, wallet, XLM helpers, receipts |
+| `backend/src/registry/` | Soroban registry sync and competition snapshot logic |
+| `backend/src/infra/` | Config, store, logger, SSE, LLM utilities |
+| `backend/src/agents/` | Worker HTTP routes |
+| `frontend/` | Dashboard UI, docs UI, API proxy |
+| `contracts/agent-registry/` | Soroban contract |
+| `docs/` | Project documentation rendered in-app |
 
 ## License
 

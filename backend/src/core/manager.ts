@@ -52,7 +52,7 @@ interface RecursiveSubTransaction {
 
 type CatalogRow = ReturnType<typeof getAgentCatalog>[number];
 
-const AGENT_TIMEOUT_MS = 5_000;
+const AGENT_TIMEOUT_MS = 45_000;
 const MAX_RECURSION_DEPTH = 3;
 /** Initial attempt + max 2 retries after failure */
 const MAX_RETRIES = 2;
@@ -331,6 +331,7 @@ async function runManagerSession(sessionId: string, query: string, budgetUsd: nu
             step: completedSteps,
             totalSteps: prioritized.length,
             agent: worker.id,
+            result: response.data.data,
             metrics: getSessionMetrics(sessionId),
             totalSpend: getSessionMetrics(sessionId).totalSpend,
             agentsUsed: getSessionStatus(sessionId)?.agentsHired ?? [],

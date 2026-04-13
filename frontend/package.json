@@ -1,11 +1,11 @@
 {
-  "name": "synergi-stellar-frontend",
+  "name": "stellar-net-frontend",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0",
-    "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3000",
+    "dev": "node init && next dev -H 0.0.0.0",
+    "build": "node init && next build",
+    "start": "node init && next start -H 0.0.0.0 -p 3000",
     "lint": "next lint"
   },
   "dependencies": {

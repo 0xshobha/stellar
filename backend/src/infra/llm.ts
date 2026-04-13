@@ -4,6 +4,14 @@ import { fetchJson } from './fetchUtil.js';
 
 const claude = env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null;
 
+export type ActiveLlmProvider = 'Claude' | 'Groq' | 'offline';
+
+export function getActiveLlmProvider(): ActiveLlmProvider {
+  if (claude) return 'Claude';
+  if (env.GROQ_API_KEY) return 'Groq';
+  return 'offline';
+}
+
 export async function completeText(prompt: string, maxTokens = 900): Promise<string> {
   if (claude) {
     const completion = await claude.messages.create({

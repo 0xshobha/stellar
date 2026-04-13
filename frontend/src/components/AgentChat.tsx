@@ -1,7 +1,9 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import * as freighter from '@stellar/freighter-api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { StreamEvent } from '../lib/types';
 
 function envRequiresManagerXlm(): boolean {
@@ -17,10 +19,6 @@ function envWantsSkipManagerXlm(): boolean {
 function computeSkipManagerXlm(): boolean {
   if (envRequiresManagerXlm()) return false;
   if (envWantsSkipManagerXlm()) return true;
-  if (typeof window !== 'undefined') {
-    const h = window.location.hostname;
-    if (h === 'localhost' || h === '127.0.0.1') return true;
-  }
   return false;
 }
 
@@ -72,6 +70,22 @@ interface AgentChatProps {
   walletAddress: string | null;
 }
 
+const PRESET_QUERIES = [
+  'AI payment trends + sentiment + summary',
+  'Research crypto market, get prices, summarize',
+  'Analyze XLM ecosystem news + sentiment',
+  'Deep research: DeFi agent economies'
+] as const;
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function AgentChat({ onSessionStart, events, summary, isRunning, walletAddress }: AgentChatProps) {
   const [query, setQuery] = useState('Research AI market trends, run sentiment check, and provide XLM price.');
   const [paymentAmount, setPaymentAmount] = useState<string>('1');
@@ -84,8 +98,7 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
     setXlmSkipped(computeSkipManagerXlm());
   }, []);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const runSubmit = useCallback(async (queryToRun: string) => {
     setLoading(true);
     setError(null);
     setInitialPayment(null);
@@ -106,7 +119,7 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
           {
             from: walletAddress,
             amount: amountValue,
-            memo: 'SynergiStellar'
+            memo: 'Stellar Net'
           },
           'Prepare XLM payment'
         );
@@ -126,7 +139,7 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
         } catch (fe) {
           const raw = fe instanceof Error ? fe.message : String(fe);
           throw new Error(
-            `Freighter signing failed (${raw}). Unlock Freighter, select Stellar testnet, and allow this site. If you see "Failed to fetch", the extension often cannot reach Horizon — use NEXT_PUBLIC_SKIP_MANAGER_XLM=1 in .env.local to skip this step for demos.`
+            `Freighter signing failed (${raw}). Unlock Freighter, select Stellar testnet, and approve the signing request.`
           );
         }
 
@@ -170,7 +183,7 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
 
       const payload = await postAppJson<{ sessionId: string }>(
         '/api/query',
-        { query },
+        { query: queryToRun },
         'Start manager session'
       );
 
@@ -184,12 +197,61 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
     } finally {
       setLoading(false);
     }
+  }, [onSessionStart, paymentAmount, walletAddress, xlmSkipped]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    await runSubmit(query);
   };
 
+  const progress = useMemo(() => {
+    let completed = 0;
+    let total = 0;
+    for (const event of events) {
+      if (event.type === 'plan' && Array.isArray(event.steps)) {
+        total = event.steps.length;
+      }
+      const completedFromEvent = readNumber(event.completedSteps) ?? readNumber(event.step);
+      const totalFromEvent = readNumber(event.totalSteps);
+      if (completedFromEvent !== null) completed = Math.max(completed, completedFromEvent);
+      if (totalFromEvent !== null) total = Math.max(total, totalFromEvent);
+    }
+    return {
+      completed,
+      total,
+      ratio: total > 0 ? Math.min(100, (completed / total) * 100) : 0
+    };
+  }, [events]);
+
   const eventLines = events
-    .filter((event) => ['status', 'hiring', 'step-start', 'step-complete', 'step-failed', 'recursive-paid', 'paid', 'error', 'complete'].includes(event.type))
-    .slice(-12)
+    .filter((event) =>
+      [
+        'status',
+        'hiring',
+        'step-start',
+        'step-complete',
+        'step-failed',
+        'recursive-paid',
+        'paid',
+        'error',
+        'complete',
+        'engine-decision',
+        'plan'
+      ].includes(event.type)
+    )
+    .slice(-20)
     .map((event, index) => {
+      const amount = readNumber(event.amount) ?? readNumber(event.pricePaid) ?? 0;
+      const txHash = readString(event.txHash);
+      const agent = readString(event.agent);
+      const source = readString(event.source);
+      const message = readString(event.message);
+      const chosenAgentId = readString(event.chosenAgentId);
+      const engineScore = readNumber(event.engineScore);
+      const candidates = readNumber(event.candidatesConsidered);
+      const totalSpend = readNumber(event.totalSpend);
+      const agentsUsed = Array.isArray(event.agentsUsed) ? event.agentsUsed.filter((item): item is string => typeof item === 'string') : [];
+
       const prefix =
         event.type === 'error'
           ? '✕'
@@ -198,16 +260,34 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
             : event.type === 'paid' || event.type === 'recursive-paid'
               ? '$'
               : '•';
-      const message =
-        typeof event.message === 'string'
-          ? event.message
-          : event.type === 'recursive-paid' && typeof event.source === 'string' && typeof event.agent === 'string'
-            ? `${event.source} paid ${event.agent}`
-          : typeof event.agent === 'string'
-            ? `${event.type} · ${event.agent}`
-            : event.type;
+
+      let line = message ?? event.type;
+      if (event.type === 'engine-decision') {
+        line = `Hired ${chosenAgentId ?? 'unknown'} (score: ${
+          engineScore !== null ? engineScore.toFixed(3) : 'n/a'
+        }, ${candidates ?? 0} candidates)`;
+      } else if (event.type === 'paid') {
+        const tx = txHash ? `${txHash.slice(0, 8)}...` : 'pending...';
+        line = `Paid ${agent ?? 'agent'} - ${amount.toFixed(3)} USDC [${tx}]`;
+      } else if (event.type === 'recursive-paid') {
+        line = `${source ?? 'worker'} -> ${agent ?? 'agent'} (recursive) - ${amount.toFixed(3)} USDC`;
+      } else if (event.type === 'plan') {
+        const steps = Array.isArray(event.steps)
+          ? event.steps
+              .map((step) => (step && typeof step === 'object' ? readString((step as { agentName?: unknown }).agentName) : null))
+              .filter((name): name is string => Boolean(name))
+          : [];
+        line = `Plan: ${steps.length} steps - ${steps.join(' -> ')}`;
+      } else if (event.type === 'complete') {
+        line = `Done - ${(totalSpend ?? 0).toFixed(3)} USDC across ${agentsUsed.length} agents`;
+      } else if (event.type === 'step-complete') {
+        const resSnippet = event.result ? (typeof event.result === 'string' ? event.result : JSON.stringify(event.result)) : '';
+        const preview = resSnippet.length > 110 ? resSnippet.slice(0, 110) + '...' : resSnippet;
+        line = `Step complete: ${agent ?? 'agent'} has processed the request. ${preview ? `Result: ${preview}` : ''}`;
+      }
+
       return (
-        <li key={`${event.type}-${index}`} className="flex items-start gap-2 text-xs text-slate-600">
+        <li key={`${event.type}-${index}-${event.at ?? ''}`} className="event-line-enter flex items-start gap-2 text-xs text-slate-600">
           <span
             className={`mt-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full text-[10px] ${
               event.type === 'error'
@@ -221,7 +301,7 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
           >
             {prefix}
           </span>
-          <span>{message}</span>
+          <span>{line}</span>
         </li>
       );
     });
@@ -231,16 +311,13 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
       <h2 className="text-lg font-semibold text-slate-900">Manager Agent Query</h2>
       {xlmSkipped ? (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Initial XLM + Freighter step is skipped on <strong>localhost</strong> (or when{' '}
-          <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_SKIP_MANAGER_XLM=1</code>). Run Manager posts directly to{' '}
-          <code className="rounded bg-white/80 px-1">/api/query</code>. Set{' '}
-          <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_REQUIRE_MANAGER_XLM=1</code> to force the payment flow.
+          Wallet signing is bypassed because <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_SKIP_MANAGER_XLM=1</code>{' '}
+          is enabled.
         </p>
       ) : (
         <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-          <strong>Real wallet flow:</strong> connect Freighter on <strong>Stellar testnet</strong>, fund this account with a little XLM, enter the amount below, then Run Manager — you will sign the payment transaction before the manager starts. Per-hop USDC x402 still uses the server{' '}
-          <code className="rounded bg-white/70 px-1">MANAGER_SECRET_KEY</code> unless you set{' '}
-          <code className="rounded bg-white/70 px-1">SYNS_DEMO_NO_X402=0</code> and fund the manager for facilitator settlement.
+          <strong>Wallet signed flow:</strong> connect Freighter on <strong>Stellar testnet</strong>, enter the amount
+          below, and run the manager. You will approve the initial payment signature before execution starts.
         </p>
       )}
       <form className="mt-3 flex flex-col gap-3" onSubmit={submit}>
@@ -249,6 +326,18 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
+        <div className="flex flex-wrap gap-2">
+          {PRESET_QUERIES.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setQuery(preset)}
+              className="soft-ring rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-sky-200 hover:text-sky-700"
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
         {!xlmSkipped ? (
           <label className="flex flex-col gap-1 text-xs text-slate-600">
             Payment Amount (XLM)
@@ -287,13 +376,29 @@ export default function AgentChat({ onSessionStart, events, summary, isRunning, 
       ) : null}
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        {isRunning && progress.total > 0 ? (
+          <div className="mb-2">
+            <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+              <span>Progress</span>
+              <span>
+                {progress.completed}/{progress.total}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${progress.ratio}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
         <p className="text-xs font-semibold text-slate-700">Live Execution</p>
         <ul className="mt-2 space-y-1">{eventLines.length ? eventLines : <li className="text-xs text-slate-500">Waiting for session events</li>}</ul>
       </div>
 
       {summary ? (
         <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
-          {summary}
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
         </div>
       ) : null}
     </section>

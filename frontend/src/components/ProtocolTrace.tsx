@@ -51,6 +51,15 @@ export default function ProtocolTrace({ traces }: ProtocolTraceProps) {
                 res headers: {Object.keys(trace.response.headers).join(', ') || 'none'}
               </p>
             ) : null}
+
+            {trace.response?.body ? (
+              <div className="mt-2">
+                <p className="mb-1 text-slate-500 font-medium">response body:</p>
+                <pre className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-[10px] text-slate-600 leading-relaxed">
+                  {JSON.stringify(trace.response.body, null, 2)}
+                </pre>
+              </div>
+            ) : null}
           </article>
         ))}
         {ordered.length === 0 ? <p className="text-slate-500">No protocol trace yet</p> : null}

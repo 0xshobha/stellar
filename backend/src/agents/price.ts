@@ -90,7 +90,8 @@ function logPaymentLine(res: Response, registryId: string, amountUsdc: number): 
 }
 
 router.post('/', agentPaywallMiddleware('price'), async (req, res) => {
-  const depth = Number(req.body?.depth ?? 0);
+  const parsedDepth = Number(req.body?.depth);
+  const depth = Number.isFinite(parsedDepth) ? parsedDepth : 0;
   const regId = String(req.header('x-registry-agent') ?? '').trim();
   const meta =
     (regId ? getAgentById(regId) : null) ?? pickBestAgentForCapability('price', Number.MAX_VALUE);

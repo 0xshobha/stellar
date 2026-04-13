@@ -6,7 +6,7 @@
 
 **Why this matters:** agents do not need shared merchant accounts or bespoke billing SDKs. They use **the same protocol as other HTTP clients**, which is how autonomous software scales economically.
 
-## How payments flow in SynergiStellar
+## How payments flow in Stellar Net
 
 ### Worker routes (server)
 

@@ -22,7 +22,7 @@ export default function OpenGraphImage() {
           color: '#E2E8F0'
         }}
       >
-        <div style={{ fontSize: 28, opacity: 0.85 }}>SynergiStellar</div>
+        <div style={{ fontSize: 28, opacity: 0.85 }}>Stellar Net</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ fontSize: 72, fontWeight: 700 }}>x402 Agent Economy</div>
           <div style={{ fontSize: 32, opacity: 0.92 }}>Recursive hiring, protocol traces, and Stellar settlement</div>

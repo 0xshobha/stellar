@@ -5,7 +5,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Sy
 #[derive(Clone)]
 #[contracttype]
 pub struct Agent {
-    pub name: String,
+    pub name: Symbol,
     pub owner: Address,
     pub endpoint: String,
     pub price_usdc: i128,
@@ -46,7 +46,7 @@ impl AgentRegistry {
         }
 
         let agent = Agent {
-            name: symbol_to_string(&env, &name),
+            name: name.clone(),
             owner,
             endpoint,
             price_usdc,
@@ -161,8 +161,4 @@ fn get_agent_symbol_list(env: &Env) -> Vec<Symbol> {
         .persistent()
         .get(&DataKey::AgentList)
         .unwrap_or(Vec::new(env))
-}
-
-fn symbol_to_string(env: &Env, symbol: &Symbol) -> String {
-    String::from_str(env, symbol.to_string().as_str())
 }

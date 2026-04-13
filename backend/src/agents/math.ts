@@ -11,7 +11,8 @@ const router = Router();
 
 router.post('/', agentPaywallMiddleware('math'), async (req, res) => {
   const raw = String(req.body?.input ?? '0');
-  const depth = Number(req.body?.depth ?? 0);
+  const parsedDepth = Number(req.body?.depth);
+  const depth = Number.isFinite(parsedDepth) ? parsedDepth : 0;
   const regId = String(req.header('x-registry-agent') ?? '').trim();
   const meta =
     (regId ? getAgentById(regId) : null) ?? pickBestAgentForCapability('math', Number.MAX_VALUE);

@@ -67,7 +67,7 @@ function networkPassphrase(): string {
 }
 
 function sorobanServer(): SorobanServer {
-  const url = process.env.SOROBAN_RPC_URL || DEFAULT_RPC;
+  const url = env.SOROBAN_RPC_URL || DEFAULT_RPC;
   return new SorobanServer(url, { allowHttp: url.startsWith('http://') });
 }
 
